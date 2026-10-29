@@ -28,9 +28,10 @@ static func tileset() -> TileSet:
 	for n in AtlasData.TILES:
 		var c := tile(n)
 		if n.begins_with("tree_"):
-			src.create_tile(c, Vector2i(1, 2))
+			# 32×48 : le feuillage déborde sur les cases voisines, le pied du tronc reste sur sa case.
+			src.create_tile(c, Vector2i(2, 3))
 			var td := src.get_tile_data(c, 0)
-			td.texture_origin = Vector2i(0, 8)
+			td.texture_origin = Vector2i(0, 16)
 			td.y_sort_origin = 7
 		else:
 			src.create_tile(c)

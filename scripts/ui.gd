@@ -29,6 +29,29 @@ var h_quest: Label
 var h_hint: Label
 var hud_t := 0.0
 var touch_root: Control
+var vignette: TextureRect
+
+
+## Assombrit doucement les bords de l'écran : donne de la profondeur pour presque rien (une seule texture).
+func _vignette() -> TextureRect:
+	var g := Gradient.new()
+	g.set_color(0, Color(0.04, 0.03, 0.08, 0.0))
+	g.set_color(1, Color(0.04, 0.03, 0.08, 0.5))
+	g.add_point(0.62, Color(0.04, 0.03, 0.08, 0.0))
+	var t := GradientTexture2D.new()
+	t.gradient = g
+	t.fill = GradientTexture2D.FILL_RADIAL
+	t.fill_from = Vector2(0.5, 0.5)
+	t.fill_to = Vector2(1.05, 1.05)
+	t.width = 128
+	t.height = 72
+	var r := TextureRect.new()
+	r.texture = t
+	r.stretch_mode = TextureRect.STRETCH_SCALE
+	r.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	r.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	r.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return r
 
 
 func _ready() -> void:
@@ -38,6 +61,8 @@ func _ready() -> void:
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.theme = theme_ui
 	add_child(root)
+	vignette = _vignette()
+	root.add_child(vignette)
 	title_root = _build_title()
 	root.add_child(title_root)
 	hud_root = _build_hud()
@@ -76,30 +101,110 @@ func _box(bg: Color, border: Color, bw: int = 1, pad: int = 4) -> StyleBoxFlat:
 	return s
 
 
+const UI_TEX := preload("res://art/ui.png")
+const FONT := preload("res://art/font/brume.fnt")
+## Taille native de la police pixel : le texte s'affiche à 1×, les titres à 2× ou 3×, jamais flou.
+const FS := 12
+
+
+func _tex(name: String) -> AtlasTexture:
+	var r: Array = UiAtlas.R[name]
+	var t := AtlasTexture.new()
+	t.atlas = UI_TEX
+	t.region = Rect2(r[0], r[1], r[2], r[3])
+	return t
+
+
+## Cadre en 9 tranches découpé dans art/ui.png.
+func _sbox(name: String, margin: int, pad: Array) -> StyleBoxTexture:
+	var s := StyleBoxTexture.new()
+	s.texture = _tex(name)
+	s.set_texture_margin_all(margin)
+	s.content_margin_left = pad[0]
+	s.content_margin_top = pad[1]
+	s.content_margin_right = pad[2]
+	s.content_margin_bottom = pad[3]
+	return s
+
+
 func _build_theme() -> void:
-	theme_ui.default_font_size = 9
+	var font: FontFile = FONT
+	font.fixed_size_scale_mode = TextServer.FIXED_SIZE_SCALE_INTEGER_ONLY
+	ThemeDB.fallback_font = FONT
+	ThemeDB.fallback_font_size = FS
+	theme_ui.default_font = FONT
+	theme_ui.default_font_size = FS
 	theme_ui.set_color("font_color", "Label", C_INK)
-	theme_ui.set_color("font_color", "Button", C_INK)
-	theme_ui.set_color("font_hover_color", "Button", Color.WHITE)
-	theme_ui.set_color("font_focus_color", "Button", Color.WHITE)
-	theme_ui.set_color("font_disabled_color", "Button", Color(C_INK, 0.4))
-	var normal := _box(C_TEAL, C_BRASS, 1, 3)
-	normal.border_width_bottom = 2
-	theme_ui.set_stylebox("normal", "Button", normal)
-	theme_ui.set_stylebox("hover", "Button", _box(C_TEAL_LT, C_BRASS, 1, 3))
-	theme_ui.set_stylebox("pressed", "Button", _box(C_TEAL, C_BRASS, 1, 3))
-	theme_ui.set_stylebox("focus", "Button", _box(Color(0, 0, 0, 0), C_MIST, 1, 3))
-	theme_ui.set_stylebox("disabled", "Button", _box(Color(C_TEAL, 0.4), C_BRASS_DK, 1, 3))
-	theme_ui.set_stylebox("panel", "PanelContainer", _box(Color(C_WOOD, 0.96), C_BRASS, 1, 8))
-	theme_ui.set_stylebox("background", "ProgressBar", _box(Color("#1a1410"), Color.BLACK, 1, 0))
-	theme_ui.set_stylebox("fill", "ProgressBar", _box(Color("#d4483b"), Color(0, 0, 0, 0), 0, 0))
-	theme_ui.set_font_size("font_size", "ProgressBar", 7)
+	theme_ui.set_color("font_shadow_color", "Label", Color(0, 0, 0, 0.55))
+	theme_ui.set_constant("shadow_offset_x", "Label", 1)
+	theme_ui.set_constant("shadow_offset_y", "Label", 1)
+	theme_ui.set_constant("line_spacing", "Label", -1)
+	for t in ["Button", "OptionButton", "CheckButton"]:
+		theme_ui.set_color("font_color", t, C_INK)
+		theme_ui.set_color("font_hover_color", t, Color.WHITE)
+		theme_ui.set_color("font_focus_color", t, Color.WHITE)
+		theme_ui.set_color("font_pressed_color", t, Color("#ffe08a"))
+		theme_ui.set_color("font_disabled_color", t, Color(C_INK, 0.45))
+		theme_ui.set_color("font_outline_color", t, Color("#102040"))
+		theme_ui.set_constant("outline_size", t, 2)
+	for t in ["Button", "OptionButton"]:
+		theme_ui.set_stylebox("normal", t, _sbox("btn_normal", 4, [7, 2, 7, 3]))
+		theme_ui.set_stylebox("hover", t, _sbox("btn_hover", 4, [7, 2, 7, 3]))
+		theme_ui.set_stylebox("pressed", t, _sbox("btn_pressed", 4, [7, 3, 7, 2]))
+		theme_ui.set_stylebox("disabled", t, _sbox("btn_disabled", 4, [7, 2, 7, 3]))
+		theme_ui.set_stylebox("focus", t, _sbox("focus", 3, [0, 0, 0, 0]))
+	theme_ui.set_icon("arrow", "OptionButton", _tex("arrow"))
+	var empty := StyleBoxEmpty.new()
+	for st in ["normal", "hover", "pressed", "disabled", "hover_pressed"]:
+		theme_ui.set_stylebox(st, "CheckButton", empty)
+	theme_ui.set_stylebox("focus", "CheckButton", _sbox("focus", 3, [0, 0, 0, 0]))
+	for ic in ["checked", "checked_disabled"]:
+		theme_ui.set_icon(ic, "CheckButton", _tex("check_on"))
+	for ic in ["unchecked", "unchecked_disabled"]:
+		theme_ui.set_icon(ic, "CheckButton", _tex("check_off"))
+	theme_ui.set_stylebox("panel", "PanelContainer", _sbox("panel", 8, [10, 9, 10, 9]))
+	theme_ui.set_stylebox("background", "ProgressBar", _sbox("bar_bg", 2, [0, 0, 0, 0]))
+	theme_ui.set_stylebox("fill", "ProgressBar", _sbox("bar_hp", 1, [0, 0, 0, 0]))
+	theme_ui.set_stylebox("slider", "HSlider", _sbox("slider", 2, [0, 2, 0, 2]))
+	theme_ui.set_icon("grabber", "HSlider", _tex("grabber"))
+	theme_ui.set_icon("grabber_highlight", "HSlider", _tex("grabber"))
+	var gf := StyleBoxFlat.new()
+	gf.bg_color = Color("#e0a848")
+	gf.content_margin_top = 2
+	gf.content_margin_bottom = 2
+	theme_ui.set_stylebox("grabber_area", "HSlider", gf)
+	theme_ui.set_stylebox("grabber_area_highlight", "HSlider", gf)
+	var pm := _sbox("panel", 8, [6, 6, 6, 6])
+	theme_ui.set_stylebox("panel", "PopupMenu", pm)
+	theme_ui.set_color("font_color", "PopupMenu", C_INK)
+	theme_ui.set_color("font_hover_color", "PopupMenu", Color("#ffe08a"))
+	var hv := StyleBoxFlat.new()
+	hv.bg_color = Color("#2a52a8")
+	theme_ui.set_stylebox("hover", "PopupMenu", hv)
+	theme_ui.set_stylebox("panel", "TooltipPanel", _sbox("hud", 4, [4, 3, 4, 3]))
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color("#e0a848")
+	theme_ui.set_stylebox("grabber", "VScrollBar", sb)
+	var sbh := StyleBoxFlat.new()
+	sbh.bg_color = Color("#ffe08a")
+	theme_ui.set_stylebox("grabber_highlight", "VScrollBar", sbh)
+	theme_ui.set_stylebox("grabber_pressed", "VScrollBar", sbh)
+	var sbs := StyleBoxFlat.new()
+	sbs.bg_color = Color(0, 0, 0, 0.35)
+	sbs.content_margin_left = 3
+	sbs.content_margin_right = 0
+	theme_ui.set_stylebox("scroll", "VScrollBar", sbs)
+
+
+## Les tailles demandées par le code (7 à 11) passent toutes à la taille native de la police pixel.
+func _fs(size: int) -> int:
+	return FS * 3 if size >= 24 else (FS * 2 if size >= 16 else FS)
 
 
 func _label(text: String, size: int = 9, col: Color = C_INK, wrap := false) -> Label:
 	var l := Label.new()
 	l.text = text
-	l.add_theme_font_size_override("font_size", size)
+	l.add_theme_font_size_override("font_size", _fs(size))
 	l.add_theme_color_override("font_color", col)
 	if wrap:
 		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -142,10 +247,9 @@ func show_title() -> void:
 	var demo := _label(Lang.t("demo_line"), 7, C_BRASS)
 	demo.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	col.add_child(demo)
-	var logo := _label("BRUMEVAL", 24, C_MIST)
-	logo.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	logo.add_theme_color_override("font_outline_color", C_TEAL)
-	logo.add_theme_constant_override("outline_size", 6)
+	var logo := TextureRect.new()
+	logo.texture = preload("res://art/logo.png")
+	logo.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
 	col.add_child(logo)
 	var tag := _label(Lang.t("tagline"), 8, C_BRASS)
 	tag.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -161,7 +265,7 @@ func show_title() -> void:
 	var nv := VBoxContainer.new()
 	notes.add_child(nv)
 	nv.add_child(_label(Lang.t("notes_title"), 9, C_BRASS))
-	for n in Lang.t("notes"):
+	for n in Lang.t("notes").slice(0, 4):
 		nv.add_child(_label("• " + n, 7, C_INK, true))
 	row.add_child(notes)
 	# menu
@@ -234,7 +338,7 @@ func _build_hud() -> Control:
 	var left := PanelContainer.new()
 	left.position = Vector2(6, 6)
 	left.custom_minimum_size = Vector2(130, 0)
-	left.add_theme_stylebox_override("panel", _box(Color(0.08, 0.05, 0.03, 0.8), C_BRASS_DK, 1, 4))
+	left.add_theme_stylebox_override("panel", _sbox("hud", 4, [5, 4, 5, 4]))
 	var lv := VBoxContainer.new()
 	lv.add_theme_constant_override("separation", 2)
 	left.add_child(lv)
@@ -242,11 +346,12 @@ func _build_hud() -> Control:
 	lv.add_child(h_lv)
 	h_hp = ProgressBar.new()
 	h_hp.custom_minimum_size = Vector2(120, 8)
+	h_hp.show_percentage = false
 	lv.add_child(h_hp)
 	h_xp = ProgressBar.new()
 	h_xp.custom_minimum_size = Vector2(120, 6)
 	h_xp.show_percentage = false
-	h_xp.add_theme_stylebox_override("fill", _box(C_MIST, Color(0, 0, 0, 0), 0, 0))
+	h_xp.add_theme_stylebox_override("fill", _sbox("bar_xp", 1, [0, 0, 0, 0]))
 	lv.add_child(h_xp)
 	h_gold = _label("", 8)
 	lv.add_child(h_gold)
@@ -257,7 +362,7 @@ func _build_hud() -> Control:
 	right.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	right.position = Vector2(-156, 6)
 	right.custom_minimum_size = Vector2(150, 0)
-	right.add_theme_stylebox_override("panel", _box(Color(0.08, 0.05, 0.03, 0.8), C_BRASS_DK, 1, 4))
+	right.add_theme_stylebox_override("panel", _sbox("hud", 4, [5, 4, 5, 4]))
 	h_quest = _label("", 7, C_INK, true)
 	h_quest.custom_minimum_size = Vector2(140, 0)
 	right.add_child(h_quest)
@@ -275,7 +380,7 @@ func _update_hud() -> void:
 	var w = world
 	var mh: float = w.body.maxhp if w.body else w.max_hp()
 	var hp: float = w.body.hp if w.body else w.p_hp
-	h_lv.text = Lang.t("lv", [w.lvl]) + (" · " + Lang.t("married", [w.spouse]) if w.spouse != "" else "")
+	h_lv.text = Lang.t("lv", [w.lvl]) + "  ♥ %d/%d" % [ceili(w.body.hp if w.body else w.p_hp), int(w.body.maxhp if w.body else w.max_hp())] + (" · " + Lang.t("married", [w.spouse]) if w.spouse != "" else "")
 	h_hp.max_value = mh
 	h_hp.value = hp
 	h_xp.max_value = w.xp_need(w.lvl)
@@ -295,6 +400,8 @@ func _update_hud() -> void:
 
 
 func _process(dt: float) -> void:
+	# Le vignettage suit le réglage « lumières » : coupé d'office sur téléphone pour garder les FPS.
+	vignette.visible = Settings.lights
 	if world:
 		touch_root.visible = world.mode == "play" and not is_open() and Settings.touch_on()
 	if world and world.mode == "play":
@@ -733,7 +840,9 @@ func show_toast(text: String, kind: String) -> void:
 		border = Color("#8fc25a")
 	elif kind == "bad":
 		border = Color("#e0604f")
-	p.add_theme_stylebox_override("panel", _box(Color(0.08, 0.05, 0.03, 0.9), border, 1, 3))
+	var st := _sbox("hud", 4, [6, 3, 6, 4])
+	st.modulate_color = border.lerp(Color.WHITE, 0.3)
+	p.add_theme_stylebox_override("panel", st)
 	var l := _label(text, 8, C_INK, true)
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	p.add_child(l)
