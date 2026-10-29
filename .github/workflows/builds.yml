@@ -1,0 +1,85 @@
+# Compile le jeu à chaque envoi : APK Android, Windows, Linux et Web.
+# Les fichiers se téléchargent dans l'onglet Actions (section « Artifacts »),
+# et la branche main publie aussi la release « derniere-version ».
+name: Builds
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  GODOT_VERSION: "4.3"
+
+jobs:
+  export:
+    name: Export ${{ matrix.preset }}
+    runs-on: ubuntu-22.04
+    container:
+      image: barichello/godot-ci:4.3
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - preset: Android
+            file: android/brumeval.apk
+          - preset: Windows
+            file: windows/Brumeval.exe
+          - preset: Linux
+            file: linux/brumeval.x86_64
+          - preset: Web
+            file: web/index.html
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Préparer Godot (modèles d'export, réglages Android)
+        run: |
+          mkdir -p ~/.local/share/godot/export_templates ~/.config
+          mv /root/.local/share/godot/export_templates/${GODOT_VERSION}.stable ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable
+          mv /root/.config/godot ~/.config/godot
+
+      - name: Importer les ressources
+        run: godot --headless --import
+
+      - name: Test rapide du jeu
+        run: godot --headless --script res://tests/smoke_test.gd 2>&1 | tee smoke.log && ! grep -q "SCRIPT ERROR" smoke.log
+
+      - name: Exporter
+        run: |
+          mkdir -p "build/$(dirname ${{ matrix.file }})"
+          godot --headless --export-debug "${{ matrix.preset }}" "build/${{ matrix.file }}"
+          test -s "build/${{ matrix.file }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: brumeval-${{ matrix.preset }}
+          path: build/
+
+  release:
+    name: Publier la dernière version
+    needs: export
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dl
+      - name: Rassembler les fichiers
+        run: |
+          mkdir out
+          cp dl/brumeval-Android/android/brumeval.apk out/Brumeval-android.apk
+          (cd dl/brumeval-Windows/windows && zip -r ../../../out/Brumeval-windows.zip .)
+          (cd dl/brumeval-Linux/linux && zip -r ../../../out/Brumeval-linux.zip .)
+          (cd dl/brumeval-Web/web && zip -r ../../../out/Brumeval-web.zip .)
+      - name: Remplacer la release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release delete derniere-version --yes --cleanup-tag || true
+          gh release create derniere-version out/* --prerelease --target "$GITHUB_SHA" \
+            --title "Dernière version (test)" \
+            --notes "Compilée automatiquement depuis main. Sur Android : télécharger Brumeval-android.apk et autoriser l'installation depuis cette source."

@@ -28,6 +28,7 @@ var h_state: Label
 var h_quest: Label
 var h_hint: Label
 var hud_t := 0.0
+var touch_root: Control
 
 
 func _ready() -> void:
@@ -41,6 +42,9 @@ func _ready() -> void:
 	root.add_child(title_root)
 	hud_root = _build_hud()
 	root.add_child(hud_root)
+	touch_root = preload("res://scripts/touch_controls.gd").new()
+	touch_root.visible = false
+	root.add_child(touch_root)
 	toasts = VBoxContainer.new()
 	toasts.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	toasts.grow_vertical = Control.GROW_DIRECTION_BEGIN
@@ -287,10 +291,12 @@ func _update_hud() -> void:
 		h_quest.text = "%s %d/%d\n%s\n%s (%d/%d)" % [Lang.t("quest"), w.quest + 1, Defs.QUESTS.size(), qt[0], qt[1], q.v, q.goal]
 		if q.done:
 			h_quest.text += "\n" + Lang.t("quest_done")
-	h_hint.text = Lang.t("placing") if w.placing != "" else Lang.t("hint")
+	h_hint.text = Lang.t("placing") if w.placing != "" else ("" if touch_root.visible else Lang.t("hint"))
 
 
 func _process(dt: float) -> void:
+	if world:
+		touch_root.visible = world.mode == "play" and not is_open() and Settings.touch_on()
 	if world and world.mode == "play":
 		hud_t -= dt
 		if hud_t <= 0:
@@ -411,6 +417,19 @@ func _unhandled_input(ev: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 
 
+## Bouton « retour » d'Android : ouvre la pause en jeu, sinon referme le panneau ouvert.
+func go_back() -> void:
+	if is_open():
+		if world.mode == "play" and panel_kind in ["settings", "controls", "saves", "patreon", "simple"]:
+			open_pause()
+		else:
+			close_panel()
+	elif world.mode == "play":
+		open_pause()
+	else:
+		get_tree().quit()
+
+
 func _on_panel_requested(kind: String) -> void:
 	match kind:
 		"inv":
@@ -490,6 +509,24 @@ func open_settings() -> void:
 	gold.disabled = Settings.tier < 1
 	gold.toggled.connect(func(on): Settings.gold_skin = on; Settings.save_settings())
 	panel_box.add_child(gold)
+	var lights := CheckButton.new()
+	lights.text = Lang.t("lights")
+	lights.button_pressed = Settings.lights
+	lights.toggled.connect(func(on): Settings.lights = on; Settings.save_settings())
+	panel_box.add_child(lights)
+	panel_box.add_child(_label(Lang.t("perf_sub"), 7, C_DIM, true))
+	var eco := CheckButton.new()
+	eco.text = Lang.t("eco")
+	eco.button_pressed = Settings.eco
+	eco.toggled.connect(func(on): Settings.eco = on; Settings.apply(); Settings.save_settings())
+	panel_box.add_child(eco)
+	var touch := OptionButton.new()
+	for n in Lang.t("touch_modes"):
+		touch.add_item(n)
+	touch.selected = ["auto", "on", "off"].find(Settings.touch)
+	touch.item_selected.connect(func(i): Settings.touch = ["auto", "on", "off"][i]; Settings.save_settings())
+	panel_box.add_child(_row(Lang.t("touch"), "", null))
+	panel_box.add_child(touch)
 	panel_box.add_child(_back_button())
 
 
@@ -703,4 +740,5 @@ func show_toast(text: String, kind: String) -> void:
 	toasts.add_child(p)
 	while toasts.get_child_count() > 4:
 		toasts.get_child(0).free()
-	get_tree().create_timer(3.2).timeout.connect(func(): if is_instance_valid(p): p.queue_free())
+	# Connexion directe : elle disparaît toute seule si le message a déjà été retiré.
+	get_tree().create_timer(3.2).timeout.connect(p.queue_free)

@@ -11,10 +11,17 @@ var diff := "normal"
 ## En démo il se règle dans les Paramètres ; en version finale il vient du serveur de liaison Patreon.
 var tier := 0
 var gold_skin := true
+## Lumières dynamiques la nuit : jolies mais coûteuses sur les petits téléphones.
+var lights := not OS.has_feature("mobile")
+## Économie d'énergie : limite à 30 images par seconde (batterie, vieux PC).
+var eco := false
+## Commandes tactiles : "auto" (si écran tactile), "on" ou "off".
+var touch := "auto"
 
 
 func _ready() -> void:
 	_setup_input()
+	apply()
 	load_settings()
 
 
@@ -28,11 +35,25 @@ func load_settings() -> void:
 	diff = c.get_value("s", "diff", diff)
 	tier = c.get_value("s", "tier", tier)
 	gold_skin = c.get_value("s", "gold_skin", gold_skin)
+	lights = c.get_value("s", "lights", lights)
+	eco = c.get_value("s", "eco", eco)
+	touch = c.get_value("s", "touch", touch)
+	apply()
+
+
+func apply() -> void:
+	Engine.max_fps = 30 if eco else 60
+
+
+func touch_on() -> bool:
+	if touch == "auto":
+		return DisplayServer.is_touchscreen_available()
+	return touch == "on"
 
 
 func save_settings() -> void:
 	var c := ConfigFile.new()
-	for k in ["lang", "vol", "shake", "diff", "tier", "gold_skin"]:
+	for k in ["lang", "vol", "shake", "diff", "tier", "gold_skin", "lights", "eco", "touch"]:
 		c.set_value("s", k, get(k))
 	c.save(PATH)
 

@@ -1,6 +1,7 @@
 extends Node2D
 ## Le monde de Brumeval : carte, joueur, créatures, PNJ, bâtiments, temps, sauvegarde.
-## Tout est dessiné dans _draw() avec des rectangles et des textures générées (voir Art).
+## Rendu : carte en TileMapLayer (sol, détails, objets triés en profondeur), personnages et
+## bâtiments en Sprite2D (voir Art). _draw_overlay() ne dessine que les barres de vie et les effets.
 
 signal toast(text: String, kind: String)
 signal dialog_requested(npc)
@@ -10,6 +11,11 @@ const TS := Defs.TS
 const MW := Defs.MW
 const MH := Defs.MH
 const T := Defs.T
+const PATHLIKE := [Defs.T.PATH, Defs.T.BRIDGE, Defs.T.GATE]
+const WATERLIKE := [Defs.T.WATER, Defs.T.BRIDGE]
+const FLASH := Color(3, 3, 3, 1)
+## Au-delà de cette distance du joueur, les créatures « dorment » (pas d'IA) pour économiser le processeur.
+const SLEEP_R2 := 420.0 * 420.0
 
 
 class Ent:
@@ -40,6 +46,8 @@ class Ent:
 	var talks := 0
 	var follow := false
 	var spouse := false
+	var vc := 0
+	var spr: Sprite2D
 
 	func is_mon() -> bool:
 		return Defs.MON.has(kind)
@@ -56,6 +64,7 @@ class Bld:
 	var h := 1
 	var cd := 0.0
 	var light: PointLight2D
+	var spr: Sprite2D
 
 	func center() -> Vector2:
 		return Vector2((tx + w / 2.0) * Defs.TS, (ty + h) * Defs.TS - 4)
@@ -109,9 +118,20 @@ var dead_t := 0.0
 @onready var cam: Camera2D = $Camera
 @onready var night: CanvasModulate = $Night
 var p_light: PointLight2D
+var ground: TileMapLayer
+var deco: TileMapLayer
+var objs: TileMapLayer
+var ysort: Node2D
+var overlay: Node2D
+var p_spr: Sprite2D
+var p_mask: Sprite2D
+var shell_spr: Sprite2D
+var chest_spr: Sprite2D
+var _gate_shown := false
 
 
 func _ready() -> void:
+	_setup_layers()
 	p_light = _make_light(48)
 	add_child(p_light)
 	new_game(1234)
@@ -207,6 +227,10 @@ func _reset(s: int, m: PackedByteArray) -> void:
 	for b in buildings:
 		if b.light:
 			b.light.queue_free()
+		b.spr.queue_free()
+	for e in ents:
+		if e.spr:
+			e.spr.queue_free()
 	seed_val = s
 	map = m
 	bgrid = PackedByteArray()
@@ -240,6 +264,7 @@ func _reset(s: int, m: PackedByteArray) -> void:
 	shell = {}
 	dead_t = 0.0
 	hurt_t = 0.0
+	rebuild_tiles()
 
 
 func new_game(s: int) -> void:
@@ -286,7 +311,8 @@ func add_villager(at: Vector2) -> Ent:
 		return null
 	var p := at if at != Vector2.INF else Vector2((Defs.VX + randf_range(-4, 4)) * TS, (Defs.VY + randf_range(-4, 4)) * TS)
 	var e := add_npc("villager", free.pick_random(), p)
-	var c: Array = Defs.VCOL.pick_random()
+	e.vc = randi() % Defs.VCOL.size()
+	var c: Array = Defs.VCOL[e.vc]
 	e.tunic = Color(c[0])
 	e.hair = Color(c[1])
 	return e
@@ -532,11 +558,11 @@ func _hit_tile(tx: int, ty: int) -> void:
 	if hp <= 0:
 		thp.erase(i)
 		if c == T.TREE:
-			map[i] = T.STUMP
+			set_tile(i, T.STUMP)
 			give("wood", 2)
 			stats.wood += 2
 		else:
-			map[i] = T.GRASS
+			set_tile(i, T.GRASS)
 
 
 func damage_p(amt: int, src: Vector2) -> void:
@@ -830,6 +856,13 @@ func add_building(k: String, tx: int, ty: int) -> Bld:
 	o.w = d.w
 	o.h = d.h
 	buildings.append(o)
+	o.spr = Art.sprite(k)
+	o.spr.position = Vector2(tx * TS, (ty + o.h) * TS)
+	ysort.add_child(o.spr)
+	if k == "mill":
+		var bl := Art.sprite("mill_blades")
+		bl.position = Vector2(16, -36)
+		o.spr.add_child(bl)
 	for y in range(ty, ty + o.h):
 		for x in range(tx, tx + o.w):
 			bgrid[y * MW + x] = 1
@@ -903,9 +936,9 @@ func _new_day() -> void:
 			e.talks = 0
 	for i in MW * MH:
 		if map[i] == T.STUMP and randf() < 0.35:
-			map[i] = T.TREE
+			set_tile(i, T.TREE)
 		elif map[i] == T.GRASS and Defs.biome(i % MW, i / MW) == "plain" and not bgrid[i] and randf() < 0.004:
-			map[i] = T.FLOWER
+			set_tile(i, T.FLOWER)
 	if flags.get("chef_day", 0) and day >= flags.chef_day + 3 and not ents.any(func(e): return e.kind == "chef" and not e.dead):
 		ents.append(mk_mon("chef", 6 + day / 5, Vector2(30 * TS + 8, 44 * TS + 8), 1))
 		flags.chef_day = 0
@@ -1001,7 +1034,7 @@ func interact() -> void:
 			if body:
 				toast.emit(Lang.t("cant_here"), "")
 				return
-			map[i] = T.GRASS
+			set_tile(i, T.GRASS)
 			give("berry")
 			float_t(Vector2(c.x * TS + 8, c.y * TS), Lang.t("forage"), Color("#ffb0c0"))
 			return
@@ -1039,7 +1072,7 @@ func _update_fx(dt: float) -> void:
 func _make_light(radius: float) -> PointLight2D:
 	var l := PointLight2D.new()
 	l.texture = Art.light_texture()
-	l.texture_scale = radius / 64.0
+	l.texture_scale = radius / 32.0
 	l.energy = 0.9
 	l.color = Color(1, 0.85, 0.6)
 	return l
@@ -1057,8 +1090,10 @@ func _process(dt: float) -> void:
 			_new_day()
 		_update_player(dt)
 		for e in ents:
+			if e.zone >= 0 and not e.ally and e.pos.distance_squared_to(p_pos) > SLEEP_R2:
+				continue
 			_update_ent(e, dt)
-		ents = ents.filter(func(e): return not e.dead)
+		_remove_dead()
 		_update_buildings(dt)
 		spawn_t -= dt
 		if spawn_t <= 0:
@@ -1074,14 +1109,20 @@ func _process(dt: float) -> void:
 	_update_fx(dt)
 	_update_camera()
 	var dk := darkness()
-	night.color = Color.WHITE.lerp(Color(0.13, 0.17, 0.35), dk / 0.74)
-	p_light.visible = mode == "play" and dk > 0.02
+	# Sans lumières dynamiques (réglage conseillé sur téléphone), la nuit reste plus claire pour rester jouable.
+	var lit := Settings.lights
+	night.color = Color.WHITE.lerp(Color(0.13, 0.17, 0.35), dk / 0.74 * (1.0 if lit else 0.7))
+	p_light.visible = lit and mode == "play" and dk > 0.02
 	p_light.position = p_pos + Vector2(0, -8)
-	p_light.texture_scale = (80.0 if Settings.tier >= 3 else 48.0) / 64.0
+	p_light.texture_scale = (80.0 if Settings.tier >= 3 else 48.0) / 32.0
 	for b in buildings:
 		if b.light:
-			b.light.visible = dk > 0.02
-	queue_redraw()
+			b.light.visible = lit and dk > 0.02
+	if gate_open() != _gate_shown:
+		_gate_shown = gate_open()
+		_refresh_cell(65, 10)
+	_sync_sprites()
+	overlay.queue_redraw()
 
 
 func _update_camera() -> void:
@@ -1120,67 +1161,224 @@ func _unhandled_input(ev: InputEvent) -> void:
 		panel_requested.emit("pause")
 
 
-# ---------------------------------------------------------------- Dessin
+# ---------------------------------------------------------------- Rendu
+
+func _setup_layers() -> void:
+	var ts := Art.tileset()
+	ground = TileMapLayer.new()
+	ground.tile_set = ts
+	ground.z_index = -2
+	add_child(ground)
+	deco = TileMapLayer.new()
+	deco.tile_set = ts
+	deco.z_index = -1
+	add_child(deco)
+	# Arbres, rochers, personnages et bâtiments sont triés ensemble selon leur y.
+	ysort = Node2D.new()
+	ysort.y_sort_enabled = true
+	add_child(ysort)
+	objs = TileMapLayer.new()
+	objs.tile_set = ts
+	objs.y_sort_enabled = true
+	ysort.add_child(objs)
+	chest_spr = Art.sprite("chest")
+	chest_spr.position = chest_pos
+	ysort.add_child(chest_spr)
+	shell_spr = Art.sprite("hero")
+	shell_spr.modulate = Color(1, 1, 1, 0.55)
+	ysort.add_child(shell_spr)
+	p_spr = Art.sprite("hero")
+	ysort.add_child(p_spr)
+	p_mask = Art.sprite("mask_gob")
+	p_spr.add_child(p_mask)
+	overlay = Node2D.new()
+	overlay.z_index = 5
+	overlay.draw.connect(_draw_overlay)
+	add_child(overlay)
+
+
+func set_tile(i: int, t: int) -> void:
+	map[i] = t
+	var x := i % MW
+	var y := i / MW
+	_refresh_cell(x, y)
+	_refresh_cell(x + 1, y)
+	_refresh_cell(x - 1, y)
+	_refresh_cell(x, y + 1)
+	_refresh_cell(x, y - 1)
+
+
+func rebuild_tiles() -> void:
+	if ground == null:
+		return
+	ground.clear()
+	deco.clear()
+	objs.clear()
+	_gate_shown = gate_open()
+	for y in MH:
+		for x in MW:
+			_refresh_cell(x, y)
+
+
+func _hv(x: int, y: int) -> int:
+	return ((x * 73856093) ^ (y * 19349663)) & 0x7fffffff
+
+
+func _conn(x: int, y: int, kinds: Array) -> bool:
+	if x < 0 or y < 0 or x >= MW or y >= MH:
+		return true
+	return kinds.has(map[y * MW + x])
+
+
+## Bits : 1 = nord, 2 = est, 4 = sud, 8 = ouest, mis quand la case voisine est du même genre.
+func _mask(x: int, y: int, kinds: Array) -> int:
+	return (1 if _conn(x, y - 1, kinds) else 0) | (2 if _conn(x + 1, y, kinds) else 0) \
+		| (4 if _conn(x, y + 1, kinds) else 0) | (8 if _conn(x - 1, y, kinds) else 0)
+
+
+func _refresh_cell(x: int, y: int) -> void:
+	if x < 0 or y < 0 or x >= MW or y >= MH:
+		return
+	var c := Vector2i(x, y)
+	var t := map[y * MW + x]
+	var v := _hv(x, y)
+	var b := Defs.biome(x, y)
+	var gv := v % 10
+	ground.set_cell(c, Art.SRC, Art.tile("grass_%s_%d" % [b, 0 if gv < 5 else (1 if gv < 7 else (2 if gv < 9 else 3))]))
+	var d := ""
+	match t:
+		T.PATH:
+			d = "path_%d" % _mask(x, y, PATHLIKE)
+		T.WATER:
+			d = "water_%d" % _mask(x, y, WATERLIKE)
+		T.BRIDGE:
+			var across := _conn(x - 1, y, PATHLIKE) or _conn(x + 1, y, PATHLIKE)
+			var along := _conn(x, y - 1, PATHLIKE) or _conn(x, y + 1, PATHLIKE)
+			d = "bridge_h" if across and not along else "bridge_v"
+		T.FLOWER:
+			d = "flower_%d" % (v % 3)
+		T.WALL:
+			d = "wall_1" if v % 5 == 0 else "wall_0"
+		T.GATE:
+			d = "gate_1" if gate_open() else "gate_0"
+		T.CRYPT:
+			d = "crypt_%d" % [0, 0, 0, 1, 2][v % 5]
+	if d == "":
+		deco.erase_cell(c)
+	else:
+		deco.set_cell(c, Art.SRC, Art.tile(d))
+	var o := ""
+	match t:
+		T.TREE:
+			o = "tree_crypt_0" if b == "crypt" else "tree_%s_%d" % [b, v % 2]
+		T.ROCK:
+			o = "rock_1" if b == "forest" or v % 4 == 0 else "rock_0"
+		T.STUMP:
+			o = "stump"
+	if o == "":
+		objs.erase_cell(c)
+	else:
+		objs.set_cell(c, Art.SRC, Art.tile(o))
+
+
+func _remove_dead() -> void:
+	for i in range(ents.size() - 1, -1, -1):
+		if ents[i].dead:
+			if ents[i].spr:
+				ents[i].spr.queue_free()
+			ents.remove_at(i)
+
+
+func _ent_sprite(e: Ent) -> String:
+	if e.kind == "villager":
+		return "villager_%d" % e.vc
+	return e.kind
+
+
+func _pose(s: Sprite2D, nm: String, dir: Vector2i, moving: bool, anim: float, sd: float) -> void:
+	var f := 0
+	match nm:
+		"loup":
+			f = int(anim * 10) % 4 if moving else 0
+		"feufollet":
+			f = int(anim * 6) % 4
+		"spectre":
+			f = int(anim * 4) % 4
+		"tent":
+			f = 0
+		_:
+			var di := 2 if dir.x != 0 else (1 if dir.y < 0 else 0)
+			f = di * 3 + ([1, 0, 2, 0][int(anim * 8) % 4] if moving else 0)
+	Art.set_frame(s, nm, f)
+	s.flip_h = dir.x < 0
+	if nm == "feufollet" or nm == "spectre":
+		s.offset.y += round(sin(anim * (4.0 if nm == "feufollet" else 3.0) + sd) * 2)
+
+
+func _view() -> Rect2:
+	var half := get_viewport_rect().size * 0.5
+	return Rect2(cam.position - half - Vector2(32, 32), half * 2 + Vector2(64, 80))
+
+
+func _sync_sprites() -> void:
+	var view := _view()
+	for e in ents:
+		if not view.has_point(e.pos):
+			if e.spr:
+				e.spr.visible = false
+			continue
+		var nm := _ent_sprite(e)
+		if e.spr == null:
+			e.spr = Art.sprite(nm)
+			ysort.add_child(e.spr)
+		e.spr.visible = true
+		e.spr.position = e.pos.round()
+		_pose(e.spr, nm, e.dir, e.moving, e.anim, e.seed)
+		e.spr.modulate = FLASH if e.hit_t > 0 else Color.WHITE
+	var nt := is_night()
+	for b in buildings:
+		match b.k:
+			"campfire":
+				Art.set_frame(b.spr, "campfire", int(clock / 0.12) % 3)
+			"house", "statue":
+				Art.set_frame(b.spr, b.k, 1 if nt else 0)
+			"mill":
+				b.spr.get_child(0).rotation = clock / 0.9
+	Art.set_frame(chest_spr, "chest", 1 if chest_open else 0)
+	shell_spr.visible = not shell.is_empty()
+	if shell_spr.visible:
+		shell_spr.position = shell.pos.round()
+		_pose(shell_spr, "hero", shell.dir, false, 0.0, 0.0)
+	var blink := hurt_t > 0 and int(hurt_t * 20) % 2 == 1
+	p_spr.visible = mode == "play" and dead_t <= 0 and not blink
+	if not p_spr.visible:
+		return
+	var nm := ""
+	if body:
+		nm = body.kind
+	else:
+		nm = "hero" + ("_gold" if Settings.tier >= 1 and Settings.gold_skin else "") + ("_cape" if armor else "")
+	p_spr.position = p_pos.round()
+	_pose(p_spr, nm, p_dir, p_moving, p_anim, 1.0)
+	p_spr.modulate = FLASH if body.is_empty() and hurt_t > 0.3 else Color.WHITE
+	p_mask.visible = body.is_empty() and mask != "" and p_dir.y >= 0
+	if p_mask.visible:
+		Art.set_frame(p_mask, mask, 0 if p_dir.x == 0 else 1)
+		p_mask.flip_h = p_dir.x < 0
+
 
 func _r(x: float, y: float, w: float, h: float, c: Color) -> void:
-	draw_rect(Rect2(round(x), round(y), w, h), c)
+	overlay.draw_rect(Rect2(round(x), round(y), w, h), c)
 
 
-func _draw() -> void:
-	var half := get_viewport_rect().size * 0.5
-	var view := Rect2(cam.position - half - Vector2(TS, TS), half * 2 + Vector2(TS * 2, TS * 3))
-	var x0 := maxi(0, int(view.position.x / TS))
-	var y0 := maxi(0, int(view.position.y / TS))
-	var x1 := mini(MW - 1, int(view.end.x / TS))
-	var y1 := mini(MH - 1, int(view.end.y / TS))
-	var wf := int(clock * 1.5) % 2
-	for y in range(y0, y1 + 1):
-		for x in range(x0, x1 + 1):
-			var c := map[y * MW + x]
-			var v := ((x * 73856093) ^ (y * 19349663)) & 0x7fffffff
-			var b := Defs.biome(x, y)
-			var f := wf if c == T.WATER else ((1 if gate_open() else 0) if c == T.GATE else 0)
-			draw_texture(Art.tile(c, v % 6 if c != T.GATE else 0, b, f), Vector2(x * TS, y * TS))
-			if c == T.ROCK:
-				draw_texture(Art.rock(), Vector2(x * TS, y * TS))
-			elif c == T.STUMP:
-				draw_texture(Art.stump(), Vector2(x * TS, y * TS))
-	# liste triée par profondeur (y)
-	var list := []
-	for y in range(y0, y1 + 1):
-		for x in range(x0, x1 + 1):
-			if map[y * MW + x] == T.TREE:
-				list.append([y * TS + 15, 0, Vector2i(x, y)])
-	for b in buildings:
-		if view.intersects(Rect2(b.tx * TS, b.ty * TS - 16, b.w * TS, b.h * TS + 16)):
-			list.append([(b.ty + b.h) * TS - 1, 1, b])
+## Ce qui n'est pas un sprite : barres de vie, repères, projectiles, particules, textes flottants.
+func _draw_overlay() -> void:
+	var view := _view()
 	for e in ents:
 		if not e.dead and view.has_point(e.pos):
-			list.append([e.pos.y, 2, e])
-	if view.has_point(chest_pos):
-		list.append([chest_pos.y, 3, null])
-	if not shell.is_empty():
-		list.append([shell.pos.y, 4, null])
-	if mode == "play" and dead_t <= 0:
-		list.append([p_pos.y, 5, null])
-	list.sort_custom(func(a, b): return a[0] < b[0])
-	for it in list:
-		match it[1]:
-			0:
-				var c: Vector2i = it[2]
-				draw_texture(Art.tree(Defs.biome(c.x, c.y), ((c.x * 73856093) ^ (c.y * 19349663)) & 0x7fffffff), Vector2(c.x * TS, c.y * TS - 8))
-			1:
-				_draw_building(it[2])
-			2:
-				_draw_ent(it[2])
-			3:
-				_r(chest_pos.x - 6, chest_pos.y - 8, 12, 8, Color("#6e4a28"))
-				_r(chest_pos.x - 6, chest_pos.y - 8, 12, 2, Color("#2a1a10") if chest_open else Color("#8a5a2b"))
-				_r(chest_pos.x - 1, chest_pos.y - 6, 2, 2, Color("#e0b040"))
-			4:
-				_draw_human(shell.pos, {"tunic": Color("#3d5c8a"), "skin": Color("#e8b890"), "hair": Color("#2a1c14"), "dir": shell.dir, "alpha": 0.55})
-			5:
-				_draw_player()
+			_draw_marks(e)
+	if mode == "play" and dead_t <= 0 and body:
+		_r(p_pos.x - 1, p_pos.y - (36 if body.kind == "chef" else 24), 2, 2, Color("#9fe6ff"))
 	for pr in projs:
 		_r(pr.pos.x - 1, pr.pos.y - 1, 3, 2, Color("#e8d0a0"))
 	if placing != "" and mode == "play":
@@ -1188,310 +1386,55 @@ func _draw() -> void:
 		var d: Dictionary = Defs.BLD[placing]
 		var ok := can_place(placing, s.x, s.y)
 		var rect := Rect2(s.x * TS, s.y * TS, d.w * TS, d.h * TS)
-		draw_rect(rect, Color(0.55, 0.86, 0.47, 0.35) if ok else Color(0.9, 0.31, 0.27, 0.4))
-		draw_rect(rect, Color("#9fe08a") if ok else Color("#e06050"), false, 1.0)
+		overlay.draw_rect(rect, Color(0.55, 0.86, 0.47, 0.35) if ok else Color(0.9, 0.31, 0.27, 0.4))
+		overlay.draw_rect(rect, Color("#9fe08a") if ok else Color("#e06050"), false, 1.0)
+	if swing > 0 and mode == "play" and dead_t <= 0:
+		_draw_swing()
 	var font := ThemeDB.fallback_font
 	for f in fx:
 		if f.k == "p":
 			_r(f.pos.x, f.pos.y, 1, 1, f.c)
 		else:
 			var a := minf(1.0, f.t * 2)
-			draw_string(font, f.pos + Vector2(-40, 1), f.s, HORIZONTAL_ALIGNMENT_CENTER, 80, 8, Color(0, 0, 0, a))
-			draw_string(font, f.pos + Vector2(-41, 0), f.s, HORIZONTAL_ALIGNMENT_CENTER, 80, 8, Color(f.c, a))
+			overlay.draw_string(font, f.pos + Vector2(-40, 1), f.s, HORIZONTAL_ALIGNMENT_CENTER, 80, 8, Color(0, 0, 0, a))
+			overlay.draw_string(font, f.pos + Vector2(-41, 0), f.s, HORIZONTAL_ALIGNMENT_CENTER, 80, 8, Color(f.c, a))
 	if Settings.tier >= 3 and mode == "play":
 		var fp := p_pos + Vector2(cos(clock * 2) * 12, -20 + sin(clock * 3) * 4)
-		draw_circle(fp, 5, Color(1, 0.94, 0.55, 0.35))
+		overlay.draw_circle(fp, 5, Color(1, 0.94, 0.55, 0.35))
 		_r(fp.x - 1, fp.y - 1, 2, 2, Color("#fff6c0"))
 
 
-func _draw_human(p: Vector2, o: Dictionary) -> void:
-	var sx := p.x
-	var sy := p.y
-	var a: float = o.get("alpha", 1.0)
-	var flash: bool = o.get("flash", false)
-	var dir: Vector2i = o.dir
-	var b := int(o.get("anim", 0.0) * 8) % 2 if o.get("moving", false) else 0
-	var tunic: Color = Color.WHITE if flash else o.tunic
-	var skin: Color = Color.WHITE if flash else o.skin
-	var hair: Color = o.hair
-	var A := func(c: Color) -> Color: return Color(c, c.a * a)
-	_r(sx - 5, sy - 1, 10, 2, Color(0, 0, 0, 0.3 * a))
-	_r(sx - 3, sy - 4, 2, 3 if b else 4, A.call(Color("#2b2230")))
-	_r(sx + 1, sy - 4, 2, 4 if b else 3, A.call(Color("#2b2230")))
-	_r(sx - 4, sy - 10, 8, 6, A.call(tunic))
-	var gold_trim: bool = o.get("gold", false)
-	_r(sx - 4, sy - 6, 8, 1, A.call(Color("#f0c040") if gold_trim else Color("#3a2a1a")))
-	if gold_trim:
-		_r(sx - 4, sy - 10, 8, 1, A.call(Color("#f0c040")))
-		_r(sx - 1, sy - 9, 2, 3, A.call(Color("#f0c040")))
-	if o.has("cape"):
-		_r(sx - 4, sy - 10, 1, 7, A.call(o.cape))
-		_r(sx + 3, sy - 10, 1, 7, A.call(o.cape))
-	_r(sx - 5, sy - 10 + b, 1, 4, A.call(skin))
-	_r(sx + 4, sy - 10 + (1 - b), 1, 4, A.call(skin))
-	_r(sx - 3, sy - 16, 6, 6, A.call(skin))
-	_r(sx - 3, sy - 17, 6, 2, A.call(hair))
-	_r(sx - 4, sy - 16, 1, 3, A.call(hair))
-	_r(sx + 3, sy - 16, 1, 3, A.call(hair))
-	if o.get("beard", false):
-		_r(sx - 2, sy - 12, 4, 2, A.call(Color("#d8d0c0")))
-	var eye: Color = A.call(Color("#1a1010"))
-	if dir.y < 0:
-		_r(sx - 3, sy - 16, 6, 4, A.call(hair))
-	elif dir.x > 0:
-		_r(sx + 1, sy - 14, 1, 1, eye)
-	elif dir.x < 0:
-		_r(sx - 2, sy - 14, 1, 1, eye)
-	else:
-		_r(sx - 2, sy - 14, 1, 1, eye)
-		_r(sx + 1, sy - 14, 1, 1, eye)
-	var m: String = o.get("mask", "")
-	if m != "" and dir.y >= 0:
-		var mc: Color = Defs.MASKC[m]
-		_r(sx - 3, sy - 15, 6, 3, mc)
-		_r(sx - 2, sy - 14, 1, 1, Color("#111"))
-		_r(sx + 1, sy - 14, 1, 1, Color("#111"))
-		if m == "mask_gob":
-			_r(sx - 5, sy - 15, 2, 1, mc)
-			_r(sx + 3, sy - 15, 2, 1, mc)
-		elif m == "mask_wolf":
-			_r(sx - 3, sy - 17, 1, 2, mc)
-			_r(sx + 2, sy - 17, 1, 2, mc)
-	if o.get("staff", false):
-		_r(sx + 5, sy - 18, 1, 16, Color("#6e4a28"))
-		_r(sx + 4, sy - 19, 3, 2, Color("#7cc4cf"))
-	if o.get("pack", false):
-		_r(sx - 5, sy - 11, 3, 6, Color("#7a5230"))
-
-
-func _draw_gob(p: Vector2, e, k: float) -> void:
-	var b := int(e.anim * 8) % 2 if e.moving else 0
-	var g := Color.WHITE if e.hit_t > 0 else (Color("#5a8a2e") if e.kind == "chef" else Color("#6c9a3a"))
-	draw_set_transform(p, 0, Vector2(k, k))
-	_r(-5, -1, 10, 2, Color(0, 0, 0, 0.3))
-	_r(-3, -3, 2, 2 if b else 3, Color("#3a2a1a"))
-	_r(1, -3, 2, 3 if b else 2, Color("#3a2a1a"))
-	_r(-3, -8, 6, 5, Color("#5a3d22"))
-	_r(-4, -14, 8, 6, g)
-	_r(-6, -13, 2, 2, g)
-	_r(4, -13, 2, 2, g)
-	_r(-7, -14, 1, 1, g)
-	_r(6, -14, 1, 1, g)
-	_r(-2, -12, 1, 1, Color("#ff4030"))
-	_r(1, -12, 1, 1, Color("#ff4030"))
-	_r(-1, -10, 2, 1, Color("#2a3a1a"))
-	var dx := -5 if e.dir.x < 0 else 4
-	_r(dx, -9, 1, 5, Color("#cfcfd6"))
-	_r(dx - 1, -6, 3, 1, Color("#6e4a28"))
-	if e.kind == "chef":
-		_r(-4, -17, 8, 2, Color("#e0b040"))
-		_r(-4, -18, 1, 1, Color("#e0b040"))
-		_r(-1, -19, 2, 2, Color("#e0b040"))
-		_r(3, -18, 1, 1, Color("#e0b040"))
-		_r(-1, -18, 1, 1, Color("#d44"))
-	draw_set_transform(Vector2.ZERO)
-
-
-func _draw_wolf(p: Vector2, e) -> void:
-	var b := int(e.anim * 10) % 2 if e.moving else 0
-	var c := Color.WHITE if e.hit_t > 0 else Color("#7d7f86")
-	draw_set_transform(p, 0, Vector2(-1 if e.dir.x < 0 else 1, 1))
-	_r(-7, -1, 14, 2, Color(0, 0, 0, 0.3))
-	var leg := Color("#55575e")
-	_r(-5, -3, 1, 3, leg)
-	_r(-3 + b, -3, 1, 3, leg)
-	_r(2, -3, 1, 3, leg)
-	_r(4 - b, -3, 1, 3, leg)
-	_r(-6, -8, 11, 5, c)
-	_r(-5, -4, 9, 1, Color("#5e6067"))
-	_r(-9, -9 + b, 3, 2, c)
-	_r(-9, -10, 1, 1, c)
-	_r(4, -11, 5, 5, c)
-	_r(8, -9, 2, 2, c)
-	_r(4, -13, 1, 2, c)
-	_r(7, -13, 1, 2, c)
-	_r(7, -10, 1, 1, Color("#ffd24a"))
-	_r(9, -8, 1, 1, Color("#222"))
-	draw_set_transform(Vector2.ZERO)
-
-
-func _draw_wisp(p: Vector2, e) -> void:
-	var y := p.y - 10 + sin(e.anim * 4 + e.seed) * 2
-	draw_circle(Vector2(p.x, y), 10, Color(0.47, 0.82, 1, 0.18))
-	draw_circle(Vector2(p.x, y), 6, Color(0.47, 0.82, 1, 0.25))
-	_r(p.x - 3, p.y - 1, 6, 2, Color(0, 0, 0, 0.25))
-	_r(p.x - 3, y - 1, 6, 4, Color("#5cc0f0"))
-	_r(p.x - 2, y - 4, 4, 4, Color.WHITE if e.hit_t > 0 else Color("#9fe6ff"))
-	_r(p.x - 1, y - 6, 2, 2, Color("#dff8ff"))
-	_r(p.x - 1 + int(e.anim * 6) % 2, y - 7, 1, 1, Color.WHITE)
-	_r(p.x - 2, y, 1, 1, Color("#14324a"))
-	_r(p.x + 1, y, 1, 1, Color("#14324a"))
-
-
-func _draw_spectre(p: Vector2, e) -> void:
-	var y := p.y + sin(e.anim * 3 + e.seed) * 2
-	var c := Color(1, 1, 1, 0.9) if e.hit_t > 0 else Color(0.69, 0.51, 0.91, 0.82)
-	_r(p.x - 4, p.y - 1, 8, 2, Color(0, 0, 0, 0.3))
-	_r(p.x - 4, y - 16, 8, 10, c)
-	_r(p.x - 5, y - 12, 10, 5, c)
-	for i in 4:
-		_r(p.x - 4 + i * 2, y - 6 + (i + int(e.anim * 4)) % 2, 2, 2, c)
-	_r(p.x - 2, y - 13, 1, 2, Color("#1a0f2a"))
-	_r(p.x + 1, y - 13, 1, 2, Color("#1a0f2a"))
-	_r(p.x - 1, y - 10, 2, 1, Color("#1a0f2a"))
-
-
-## e peut être un Ent ou un dictionnaire léger (corps du joueur) avec les mêmes champs.
-func _draw_creature(p: Vector2, e) -> void:
-	match e.kind:
-		"gobelin":
-			_draw_gob(p, e, 1.0)
-		"chef":
-			_draw_gob(p, e, 1.6)
-		"loup":
-			_draw_wolf(p, e)
-		"feufollet":
-			_draw_wisp(p, e)
-		"spectre":
-			_draw_spectre(p, e)
-
-
-func _draw_tent(p: Vector2) -> void:
-	_r(p.x - 9, p.y - 1, 18, 2, Color(0, 0, 0, 0.3))
-	for i in 10:
-		_r(p.x - i, p.y - 10 + i, i * 2, 1, Color("#8a6a3a") if i % 3 else Color("#6e5230"))
-	_r(p.x - 1, p.y - 5, 2, 5, Color("#2a1a10"))
-	_r(p.x, p.y - 13, 1, 4, Color("#5a3b1f"))
-	_r(p.x + 1, p.y - 13, 3, 2, Color("#b5423b"))
-
-
-func _draw_ent(e: Ent) -> void:
+func _draw_marks(e: Ent) -> void:
 	var p := e.pos.round()
-	match e.kind:
-		"tent":
-			_draw_tent(p)
-			return
-		"villager":
-			_draw_human(p, {"tunic": e.tunic, "skin": Color("#d9a882"), "hair": e.hair, "dir": e.dir, "moving": e.moving, "anim": e.anim, "flash": e.hit_t > 0})
-		"elder":
-			_draw_human(p, {"tunic": Color("#6a4a8a"), "skin": Color("#d9b090"), "hair": Color("#d8d0c0"), "dir": e.dir, "beard": true, "staff": true})
-		"trader":
-			_draw_human(p, {"tunic": Color("#8a6a2a"), "skin": Color("#c99a72"), "hair": Color("#4a2a1a"), "dir": e.dir, "pack": true})
-		_:
-			_draw_creature(p, e)
+	var top: float = p.y - {"chef": 34, "loup": 16, "gobelin": 20}.get(e.kind, 23)
 	if e.is_mon() and not e.ally and e.hp < e.maxhp:
 		var boss: bool = Defs.MON[e.kind].get("boss", false)
 		var w := 20.0 if boss else 12.0
-		var yb := p.y - (32 if e.kind == "chef" else 20)
-		_r(p.x - w / 2, yb, w, 2, Color("#300"))
-		_r(p.x - w / 2, yb, maxf(1, w * e.hp / e.maxhp), 2, Color("#7cd0f0") if (e.hp / e.maxhp <= 0.35 and not boss) else Color("#d4483b"))
+		_r(p.x - w / 2, top, w, 2, Color("#300"))
+		_r(p.x - w / 2, top, maxf(1, w * e.hp / e.maxhp), 2, Color("#7cd0f0") if (e.hp / e.maxhp <= 0.35 and not boss) else Color("#d4483b"))
 	if e.ally or e.follow:
-		_r(p.x - 1, p.y - 21, 2, 2, Color("#8fc25a"))
+		_r(p.x - 1, top - 2, 2, 2, Color("#8fc25a"))
 	if e.is_mon() and not e.ally and friendly(e):
-		_r(p.x - 1, p.y - 22, 2, 1, Color("#7cc4cf"))
+		_r(p.x - 1, top - 2, 2, 1, Color("#7cc4cf"))
 	if e.kind == "elder":
 		var q := quest_progress()
 		if not q.is_empty() and q.done:
 			var bob := int(clock / 0.3) % 2
-			_r(p.x - 1, p.y - 26 - bob, 2, 4, Color("#ffd76a"))
-			_r(p.x - 1, p.y - 21 - bob, 2, 1, Color("#ffd76a"))
+			_r(p.x - 1, top - 7 - bob, 2, 4, Color("#ffd76a"))
+			_r(p.x - 1, top - 2 - bob, 2, 1, Color("#ffd76a"))
 
 
-func _draw_player() -> void:
-	if hurt_t > 0 and int(hurt_t * 20) % 2:
-		return
-	var p := p_pos.round()
-	if body:
-		_draw_creature(p, {"kind": body.kind, "dir": p_dir, "moving": p_moving, "anim": p_anim, "hit_t": 0.0, "seed": 1.0})
-		_r(p.x - 1, p.y - 24, 2, 2, Color("#9fe6ff"))
+func _draw_swing() -> void:
+	var c := Color(1, 1, 1, 0.75)
+	var a := p_pos.round() + Vector2(p_dir) * 10 + Vector2(0, -7)
+	if p_dir.x != 0:
+		var side := -1 if p_dir.x < 0 else 1
+		_r(a.x - (6 if side < 0 else 0), a.y - 6, 6, 1, c)
+		_r(a.x + (-7 if side < 0 else 6), a.y - 5, 1, 10, c)
+		_r(a.x - (6 if side < 0 else 0), a.y + 5, 6, 1, c)
 	else:
-		var o := {"tunic": Color("#3d5c8a"), "skin": Color("#e8b890"), "hair": Color("#2a1c14"), "dir": p_dir, "moving": p_moving, "anim": p_anim, "mask": mask, "gold": Settings.tier >= 1 and Settings.gold_skin, "flash": hurt_t > 0.3}
-		if armor:
-			o["cape"] = Color("#7a5230")
-		_draw_human(p, o)
-	if swing > 0:
-		var c := Color(1, 1, 1, 0.75)
-		var a := p + Vector2(p_dir) * 10 + Vector2(0, -7)
-		if p_dir.x != 0:
-			var side := -1 if p_dir.x < 0 else 1
-			_r(a.x - (6 if side < 0 else 0), a.y - 6, 6, 1, c)
-			_r(a.x + (-7 if side < 0 else 6), a.y - 5, 1, 10, c)
-			_r(a.x - (6 if side < 0 else 0), a.y + 5, 6, 1, c)
-		else:
-			_r(a.x - 6, a.y, 12, 1, c)
-			_r(a.x - 5, a.y + (-2 if p_dir.y < 0 else 2), 10, 1, c)
-
-
-func _draw_building(b: Bld) -> void:
-	var x := float(b.tx * TS)
-	var y := float(b.ty * TS)
-	var w := float(b.w * TS)
-	var h := float(b.h * TS)
-	var nt := is_night()
-	match b.k:
-		"campfire":
-			_r(x + 2, y + 11, 12, 3, Color(0, 0, 0, 0.3))
-			_r(x + 3, y + 10, 10, 3, Color("#5a3b1f"))
-			_r(x + 5, y + 9, 6, 2, Color("#6e4a28"))
-			var f := int(clock / 0.12) % 3
-			_r(x + 5, y + 4 + f % 2, 6, 6, Color("#e8742a"))
-			_r(x + 6, y + 2 + f, 4, 5, Color("#f5b23a"))
-			_r(x + 7, y + 1 + (1 if f == 1 else 0), 2, 3, Color("#fff0a0"))
-		"house":
-			_r(x + 2, y + h - 14, w - 4, 14, Color("#b98b5a"))
-			_r(x + 2, y + h - 14, w - 4, 1, Color("#8a6440"))
-			for i in 9:
-				_r(x + i * 1.5, y + h - 15 - i * 2, w - i * 3, 2, Color("#8e3b2e") if i % 2 else Color("#a4473a"))
-			_r(x + 13, y + h - 9, 6, 9, Color("#5a3b1f"))
-			var win := Color("#ffd76a") if nt else Color("#2a3a4a")
-			_r(x + 5, y + h - 10, 5, 4, win)
-			_r(x + 22, y + h - 10, 5, 4, win)
-		"workshop":
-			_r(x + 1, y + h - 16, w - 2, 16, Color("#7a6a5a"))
-			_r(x + 1, y + h - 16, w - 2, 2, Color("#5a4a3a"))
-			_r(x, y + h - 24, w, 8, Color("#4a3a2e"))
-			_r(x + 2, y + h - 26, w - 4, 2, Color("#3a2a20"))
-			_r(x + 4, y + h - 10, 10, 10, Color("#3a2a20"))
-			_r(x + 18, y + h - 12, 9, 3, Color("#9a9aa6"))
-			_r(x + 20, y + h - 9, 5, 4, Color("#6a6a76"))
-			_r(x + 26, y + h - 30, 3, 6, Color("#555"))
-		"farm":
-			_r(x, y + 4, w, h - 4, Color("#6b4a2b"))
-			for r in 3:
-				_r(x + 1, y + 8 + r * 8, w - 2, 1, Color("#54381f"))
-				for c in 4:
-					_r(x + 2 + c * 8, y + 5 + r * 8, 5, 4, Color("#3f7a34"))
-					_r(x + 3 + c * 8, y + 6 + r * 8, 1, 1, Color("#d4384a"))
-					_r(x + 5 + c * 8, y + 7 + r * 8, 1, 1, Color("#d4384a"))
-			_r(x, y + 4, w, 1, Color("#8a6a3a"))
-		"mill":
-			_r(x + 8, y + h - 20, 16, 20, Color("#9a8e7e"))
-			_r(x + 8, y + h - 20, 16, 2, Color("#7a6e5e"))
-			_r(x + 13, y + h - 8, 6, 8, Color("#5a3b1f"))
-			_r(x + 6, y + h - 24, 20, 5, Color("#8e3b2e"))
-			var cpos := Vector2(x + 16, y + h - 22)
-			for i in 4:
-				draw_set_transform(cpos, clock / 0.9 + i * PI / 2)
-				draw_rect(Rect2(-1, 0, 2, 13), Color("#d9c8a0"))
-				draw_rect(Rect2(1, 3, 4, 9), Color("#f0e4c4"))
-			draw_set_transform(Vector2.ZERO)
-			_r(cpos.x - 1, cpos.y - 1, 3, 3, Color("#3a2a20"))
-		"tower":
-			_r(x + 2, y + 6, 12, h - 6, Color("#7a7a84"))
-			for i in range(0, int(h) - 6, 4):
-				_r(x + 2, y + 6 + i, 12, 1, Color("#5e5e68"))
-			_r(x + 1, y + 2, 14, 5, Color("#8a8a94"))
-			for cx in [1, 7, 12]:
-				_r(x + cx, y, 3, 3, Color("#8a8a94"))
-			_r(x + 6, y + 12, 4, 5, Color("#2a2a34"))
-			_r(x + 14, y - 8, 1, 9, Color("#5a3b1f"))
-			_r(x + 15, y - 8, 5, 3, Color("#7cc4cf"))
-		"statue":
-			_r(x + 3, y + h - 5, 10, 5, Color("#8a8a94"))
-			_r(x + 5, y + 8, 6, h - 13, Color("#c9a24a"))
-			_r(x + 4, y + 4, 8, 5, Color("#e0b850"))
-			_r(x + 6, y + 5, 4, 3, Color("#fff3b0") if nt else Color("#f5d36a"))
-			_r(x + 7, y + 1, 2, 3, Color("#c9a24a"))
+		_r(a.x - 6, a.y, 12, 1, c)
+		_r(a.x - 5, a.y + (-2 if p_dir.y < 0 else 2), 10, 1, c)
 
 
 # ---------------------------------------------------------------- Sauvegarde
@@ -1568,6 +1511,9 @@ func load_save(slot: String) -> bool:
 		var e := add_npc(n.kind, n.name, Vector2(n.x, n.y))
 		e.home = Vector2(n.hx, n.hy)
 		e.tunic = Color(n.tunic)
+		for i in Defs.VCOL.size():
+			if Color(Defs.VCOL[i][0]).is_equal_approx(e.tunic):
+				e.vc = i
 		e.hair = Color(n.hair)
 		e.aff = int(n.aff)
 		e.talks = int(n.talks)
