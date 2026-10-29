@@ -15,6 +15,7 @@ const PATHLIKE := [Defs.T.PATH, Defs.T.BRIDGE, Defs.T.GATE]
 const WATERLIKE := [Defs.T.WATER, Defs.T.BRIDGE]
 const FLASH := Color(3, 3, 3, 1)
 ## Au-delà de cette distance du joueur, les créatures « dorment » (pas d'IA) pour économiser le processeur.
+const DUSK := Color(1.0, 0.8, 0.62)
 const SLEEP_R2 := 420.0 * 420.0
 
 
@@ -120,6 +121,7 @@ var dead_t := 0.0
 var p_light: PointLight2D
 var ground: TileMapLayer
 var deco: TileMapLayer
+var props: TileMapLayer
 var objs: TileMapLayer
 var ysort: Node2D
 var overlay: Node2D
@@ -866,6 +868,7 @@ func add_building(k: String, tx: int, ty: int) -> Bld:
 	for y in range(ty, ty + o.h):
 		for x in range(tx, tx + o.w):
 			bgrid[y * MW + x] = 1
+			_refresh_cell(x, y)
 	var radius := {"campfire": 62, "statue": 70, "house": 26, "tower": 30}
 	if radius.has(k):
 		o.light = _make_light(radius[k])
@@ -1111,7 +1114,12 @@ func _process(dt: float) -> void:
 	var dk := darkness()
 	# Sans lumières dynamiques (réglage conseillé sur téléphone), la nuit reste plus claire pour rester jouable.
 	var lit := Settings.lights
-	night.color = Color.WHITE.lerp(Color(0.13, 0.17, 0.35), dk / 0.74 * (1.0 if lit else 0.7))
+	# Le soir passe par une teinte dorée avant le bleu de la nuit.
+	var t := dk / 0.74 * (1.0 if lit else 0.7)
+	if t < 0.35:
+		night.color = Color.WHITE.lerp(DUSK, t / 0.35)
+	else:
+		night.color = DUSK.lerp(Color(0.13, 0.17, 0.35), (t - 0.35) / 0.65)
 	p_light.visible = lit and mode == "play" and dk > 0.02
 	p_light.position = p_pos + Vector2(0, -8)
 	p_light.texture_scale = (80.0 if Settings.tier >= 3 else 48.0) / 32.0
@@ -1173,6 +1181,10 @@ func _setup_layers() -> void:
 	deco.tile_set = ts
 	deco.z_index = -1
 	add_child(deco)
+	props = TileMapLayer.new()
+	props.tile_set = ts
+	props.z_index = -1
+	add_child(props)
 	# Arbres, rochers, personnages et bâtiments sont triés ensemble selon leur y.
 	ysort = Node2D.new()
 	ysort.y_sort_enabled = true
@@ -1213,11 +1225,20 @@ func rebuild_tiles() -> void:
 		return
 	ground.clear()
 	deco.clear()
+	props.clear()
 	objs.clear()
 	_gate_shown = gate_open()
 	for y in MH:
 		for x in MW:
 			_refresh_cell(x, y)
+
+
+## Bruit à grande échelle (cases de 5×5 lissées) pour les taches de prairie.
+func _patch(x: int, y: int) -> bool:
+	var n := 0
+	for d in [Vector2i(0, 0), Vector2i(2, 1), Vector2i(-1, 2)]:
+		n += _hv((x + d.x) / 5, (y + d.y) / 5) % 3
+	return n >= 4
 
 
 func _hv(x: int, y: int) -> int:
@@ -1244,7 +1265,9 @@ func _refresh_cell(x: int, y: int) -> void:
 	var v := _hv(x, y)
 	var b := Defs.biome(x, y)
 	var gv := v % 10
-	ground.set_cell(c, Art.SRC, Art.tile("grass_%s_%d" % [b, 0 if gv < 5 else (1 if gv < 7 else (2 if gv < 9 else 3))]))
+	# Taches d'herbe plus sombre qui s'étalent sur plusieurs cases.
+	var patch := 4 if _patch(x, y) else 0
+	ground.set_cell(c, Art.SRC, Art.tile("grass_%s_%d" % [b, patch + (0 if gv < 5 else (1 if gv < 7 else (2 if gv < 9 else 3)))]))
 	var d := ""
 	match t:
 		T.PATH:
@@ -1279,6 +1302,26 @@ func _refresh_cell(x: int, y: int) -> void:
 		objs.erase_cell(c)
 	else:
 		objs.set_cell(c, Art.SRC, Art.tile(o))
+	var pr := ""
+	if t == T.GRASS and not bgrid[y * MW + x]:
+		var q := (v >> 4) % 100
+		match b:
+			"plain":
+				pr = "prop_tallgrass_0" if q < 9 else ("prop_bush_%d" % (v % 2) if q < 12 else ("prop_mushroom_0" if q < 13 else ("prop_pebbles_0" if q < 15 else "")))
+			"forest":
+				pr = "prop_fern_0" if q < 12 else ("prop_tallgrass_1" if q < 20 else ("prop_mushroom_%d" % (v % 2) if q < 24 else ("prop_bush_0" if q < 27 else "")))
+			"marsh":
+				pr = "prop_reeds_0" if q < 12 else ("prop_tallgrass_2" if q < 22 else ("prop_mushroom_1" if q < 24 else ""))
+			"crypt":
+				pr = "prop_bones_0" if q < 6 else ("prop_crystal_0" if q < 9 else "")
+	elif t == T.WATER and _mask(x, y, WATERLIKE) == 15:
+		var q := (v >> 4) % 100
+		if q < (14 if b == "marsh" else 4):
+			pr = "prop_lily_%d" % (v % 2)
+	if pr == "":
+		props.erase_cell(c)
+	else:
+		props.set_cell(c, Art.SRC, Art.tile(pr))
 
 
 func _remove_dead() -> void:
@@ -1378,7 +1421,7 @@ func _draw_overlay() -> void:
 		if not e.dead and view.has_point(e.pos):
 			_draw_marks(e)
 	if mode == "play" and dead_t <= 0 and body:
-		_r(p_pos.x - 1, p_pos.y - (36 if body.kind == "chef" else 24), 2, 2, Color("#9fe6ff"))
+		_r(p_pos.x - 1, p_pos.y - (40 if body.kind == "chef" else 30), 2, 2, Color("#9fe6ff"))
 	for pr in projs:
 		_r(pr.pos.x - 1, pr.pos.y - 1, 3, 2, Color("#e8d0a0"))
 	if placing != "" and mode == "play":
@@ -1406,7 +1449,7 @@ func _draw_overlay() -> void:
 
 func _draw_marks(e: Ent) -> void:
 	var p := e.pos.round()
-	var top: float = p.y - {"chef": 34, "loup": 16, "gobelin": 20}.get(e.kind, 23)
+	var top: float = p.y - {"chef": 38, "loup": 20, "gobelin": 25}.get(e.kind, 30)
 	if e.is_mon() and not e.ally and e.hp < e.maxhp:
 		var boss: bool = Defs.MON[e.kind].get("boss", false)
 		var w := 20.0 if boss else 12.0
@@ -1426,7 +1469,7 @@ func _draw_marks(e: Ent) -> void:
 
 func _draw_swing() -> void:
 	var c := Color(1, 1, 1, 0.75)
-	var a := p_pos.round() + Vector2(p_dir) * 10 + Vector2(0, -7)
+	var a := p_pos.round() + Vector2(p_dir) * 11 + Vector2(0, -9)
 	if p_dir.x != 0:
 		var side := -1 if p_dir.x < 0 else 1
 		_r(a.x - (6 if side < 0 else 0), a.y - 6, 6, 1, c)
