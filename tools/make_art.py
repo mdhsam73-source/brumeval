@@ -1279,6 +1279,387 @@ def statue(night):
     return s
 
 
+def stone_base(s, x0, y0, w, h, st):
+    """Soubassement en pierres taillées."""
+    stone, st_lo, st_hi = st
+    s.r(x0, y0, w, h, stone)
+    for j, y in enumerate(range(y0, y0 + h, 3)):
+        off = (j % 2) * 3
+        for x in range(x0 + off, x0 + w, 6):
+            s.r(x, y, min(5, x0 + w - x), 1, st_hi)
+            s.r(min(x + 5, x0 + w - 1), y, 1, 3, st_lo)
+    s.r(x0, y0 + h - 1, w, 1, st_lo)
+
+
+def window(s, x, y, w, h, night, frame):
+    glass = rgb("#ffd76a") if night else rgb("#3a5a7e")
+    s.r(x - 1, y - 1, w + 2, h + 2, frame)
+    s.r(x, y, w, h, glass)
+    s.r(x + w // 2, y, 1, h, frame)
+    s.p(x, y, rgb("#fff4c0") if night else rgb("#8ab0d4"))
+
+
+STONE = (rgb("#8a8478"), rgb("#625c52"), rgb("#aaa496"))
+BEAM, BEAM_LO = rgb("#6e4426"), rgb("#4a2c16")
+
+
+def tavern(night):
+    """Taverne à étage : enseigne à chope, tonneaux, balcon."""
+    s = Spr(32, 58)
+    plaster, pl_lo = rgb("#e8d6b0"), rgb("#bca47a")
+    roofc = [rgb(c) for c in ("#6a8ac4", "#4a6aa4", "#344e80", "#22345a")]
+    stone_base(s, 1, 48, 30, 10, STONE)
+    # rez-de-chaussée en pierre + étage à colombages
+    s.r(2, 22, 28, 26, plaster)
+    s.r(2, 22, 28, 2, pl_lo)
+    for x in (2, 10, 21, 28):
+        s.r(x, 22, 2, 26, BEAM)
+        s.r(x + 1, 22, 1, 26, BEAM_LO)
+    s.r(1, 34, 30, 2, BEAM)
+    s.r(1, 36, 30, 1, BEAM_LO)
+    for i in range(6):
+        s.p(4 + i, 33 - i, BEAM)
+        s.p(19 - i, 33 - i, BEAM)
+    for x in (5, 23):
+        window(s, x, 26, 4, 4, night, BEAM_LO)
+    window(s, 13, 26, 6, 4, night, BEAM_LO)
+    # balcon
+    s.r(11, 32, 10, 1, rgb("#8a5a32"))
+    for x in range(11, 21, 2):
+        s.r(x, 31, 1, 2, rgb("#5a3a20"))
+    # porte double et fenêtres du bas
+    s.r(12, 40, 8, 18, BEAM_LO)
+    s.r(13, 41, 6, 17, rgb("#8a5a32"))
+    s.r(16, 41, 1, 17, rgb("#5a3a20"))
+    s.r(13, 41, 6, 1, rgb("#a87444"))
+    s.p(15, 49, rgb("#f0c050"))
+    s.p(17, 49, rgb("#f0c050"))
+    for x in (4, 23):
+        window(s, x, 40, 5, 4, night, BEAM_LO)
+    # enseigne à chope
+    s.r(25, 34, 6, 1, rgb("#3a2414"))
+    s.r(26, 35, 5, 5, rgb("#c49a58"))
+    s.r(27, 36, 2, 3, rgb("#f0d070"))
+    s.r(29, 37, 1, 1, rgb("#f0d070"))
+    s.r(27, 36, 2, 1, rgb("#ffffff"))
+    # tonneaux
+    for x in (1, 5):
+        s.r(x, 53, 4, 5, rgb("#7a5634"))
+        s.r(x, 54, 4, 1, rgb("#4a4a52"))
+        s.r(x, 53, 4, 1, rgb("#9a7046"))
+    # toit d'ardoise bleue
+    shingles(s, 0, 4, 32, 19, roofc, taper=5)
+    s.r(5, 3, 22, 1, rgb("#8aa8e0"))
+    s.r(0, 22, 32, 1, roofc[3])
+    # lucarne
+    s.r(13, 9, 6, 6, plaster)
+    s.r(12, 8, 8, 1, roofc[3])
+    window(s, 14, 10, 4, 3, night, BEAM_LO)
+    # cheminée
+    s.r(4, 0, 5, 8, STONE[0])
+    s.r(4, 0, 5, 1, STONE[2])
+    s.r(8, 1, 1, 7, STONE[1])
+    s.outline()
+    s.shadow(16, 57.5, 17, 2)
+    return s
+
+
+def bakery(night):
+    """Boulangerie : four en brique, auvent rayé, pains en vitrine."""
+    s = Spr(32, 50)
+    brick, br_lo, br_hi = rgb("#b8664a"), rgb("#8a4632"), rgb("#d0866a")
+    roofc = [rgb(c) for c in ("#d8b070", "#b88c48", "#8a6430", "#5e4220")]
+    stone_base(s, 1, 44, 30, 6, STONE)
+    s.r(2, 24, 28, 20, brick)
+    for j, y in enumerate(range(24, 44, 2)):
+        s.r(2, y, 28, 1, br_lo)
+        for x in range(2 + (j % 2) * 2, 30, 4):
+            s.p(x, y + 1, br_lo)
+            s.p(x + 1, y + 1, br_hi)
+    # vitrine avec pains
+    s.r(4, 31, 12, 8, BEAM_LO)
+    s.r(5, 32, 10, 6, rgb("#ffd76a") if night else rgb("#3a5a7e"))
+    for (x, y) in ((6, 35), (9, 34), (12, 35)):
+        s.r(x, y, 3, 2, rgb("#d89a48"))
+        s.r(x, y, 3, 1, rgb("#f0c070"))
+    s.r(5, 37, 10, 1, rgb("#7a4a26"))
+    # porte
+    s.r(19, 32, 7, 12, BEAM_LO)
+    s.r(20, 33, 5, 11, rgb("#7a4e2c"))
+    s.r(20, 33, 5, 1, rgb("#9a6c40"))
+    s.p(24, 38, rgb("#f0c050"))
+    # auvent rayé
+    for x in range(2, 30):
+        c = rgb("#e8e0d0") if (x // 3) % 2 else rgb("#c84a3a")
+        s.r(x, 27, 1, 3, c)
+        if x % 3 == 1:
+            s.p(x, 30, c)
+    s.r(2, 26, 28, 1, rgb("#7a3028"))
+    # enseigne pain
+    s.r(19, 20, 9, 5, rgb("#5a3a20"))
+    s.r(20, 21, 7, 3, rgb("#c49a58"))
+    s.r(21, 22, 5, 1, rgb("#8a5a2a"))
+    # toit de chaume
+    shingles(s, 0, 6, 32, 19, roofc, taper=6)
+    s.r(6, 5, 20, 1, rgb("#f0d090"))
+    s.r(0, 24, 32, 1, roofc[3])
+    # cheminée du four, avec fumée claire
+    s.r(23, 0, 5, 10, brick)
+    s.r(23, 0, 5, 1, br_hi)
+    s.r(27, 1, 1, 9, br_lo)
+    s.r(24, 0, 3, 1, rgb("#2a1a14"))
+    # sacs de farine
+    s.ellipse(29, 47, 2.5, 2.5, rgb("#e8dcc0"))
+    s.outline()
+    s.shadow(16, 49.5, 17, 2)
+    return s
+
+
+def market():
+    """Étals du marché : toiles colorées, caisses de fruits, poissons."""
+    s = Spr(32, 36)
+    wood, wlo = rgb("#8a6038"), rgb("#5a3a20")
+    for (x0, c1, c2) in ((0, "#3a8ac0", "#e8e0d0"), (16, "#d8a030", "#c84a3a")):
+        # poteaux
+        s.r(x0 + 1, 10, 2, 22, wlo)
+        s.r(x0 + 13, 10, 2, 22, wlo)
+        # comptoir
+        s.r(x0, 22, 16, 9, wood)
+        s.r(x0, 22, 16, 1, rgb("#a87848"))
+        s.r(x0, 30, 16, 1, wlo)
+        for x in range(x0 + 1, x0 + 16, 5):
+            s.r(x, 23, 1, 7, wlo)
+        # toile
+        for j in range(8):
+            y = 4 + j
+            for x in range(x0, x0 + 16):
+                s.p(x, y, rgb(c1) if ((x - x0) // 3) % 2 == 0 else rgb(c2))
+        s.r(x0, 4, 16, 1, rgb("#ffffff"))
+        for x in range(x0, x0 + 16, 3):
+            s.r(x, 12, 2, 1, rgb(c1))
+    # marchandises
+    for (x, c, hl) in ((2, "#d84a3a", "#ff9080"), (6, "#e8a030", "#ffd070"), (10, "#7ac05a", "#b0e890")):
+        s.r(x, 19, 4, 3, rgb("#7a5634"))
+        for dx in range(0, 4, 2):
+            s.r(x + dx, 18, 2, 2, rgb(c))
+            s.p(x + dx, 18, rgb(hl))
+    for x in (18, 23):
+        s.r(x, 19, 4, 2, rgb("#9ab4c8"))
+        s.p(x, 19, rgb("#d8e8f0"))
+        s.p(x + 4, 20, rgb("#9ab4c8"))
+    s.r(27, 17, 3, 5, rgb("#c4a058"))
+    s.r(27, 17, 3, 1, rgb("#e8c878"))
+    # caisses devant
+    s.r(4, 31, 5, 4, rgb("#9a7046"))
+    s.r(4, 31, 5, 1, rgb("#b88a5a"))
+    s.r(5, 30, 3, 1, rgb("#d84a3a"))
+    s.r(22, 31, 6, 4, rgb("#9a7046"))
+    s.r(22, 31, 6, 1, rgb("#b88a5a"))
+    s.outline()
+    s.shadow(16, 35.5, 17, 1.8)
+    return s
+
+
+def chapel(night):
+    """Chapelle en pierre claire : clocher, vitrail, porte en arc (2×3 cases)."""
+    s = Spr(32, 72)
+    st, lo, hi = rgb("#cfc6b4"), rgb("#9a907e"), rgb("#e8e0d0")
+    roofc = [rgb(c) for c in ("#7a8a9a", "#5a6a7a", "#424e5c", "#2c3440")]
+    # nef
+    s.r(2, 36, 28, 32, st)
+    s.r(2, 36, 2, 32, hi)
+    s.r(27, 36, 3, 32, lo)
+    for j, y in enumerate(range(39, 68, 4)):
+        for x in range(4 + (j % 2) * 4, 27, 8):
+            s.r(x, y, 6, 1, lo)
+    stone_base(s, 1, 66, 30, 6, STONE)
+    # toit de la nef
+    shingles(s, 0, 26, 32, 11, roofc, taper=3)
+    s.r(0, 36, 32, 1, roofc[3])
+    # clocher
+    s.r(10, 10, 12, 18, st)
+    s.r(10, 10, 2, 18, hi)
+    s.r(20, 10, 2, 18, lo)
+    s.r(13, 14, 6, 7, rgb("#2a2430"))
+    s.r(14, 15, 4, 4, rgb("#d4ac50"))
+    s.r(15, 19, 2, 1, rgb("#9a7428"))
+    s.r(14, 15, 2, 1, rgb("#f8e08a"))
+    for i in range(10):
+        hw = 1 + i * 7 // 9
+        s.r(16 - hw, 1 + i, hw * 2, 1, roofc[1])
+        s.r(16 - hw, 1 + i, max(1, hw // 2), 1, roofc[0])
+    s.r(9, 10, 14, 1, roofc[3])
+    s.r(15, 0, 2, 2, rgb("#d4ac50"))
+    # vitrail rond
+    s.ellipse(16, 44, 4.5, 4.5, rgb("#4a3a2a"))
+    for (dx, dy, c) in ((-2, -2, "#d84a3a"), (1, -2, "#3a8ac0"), (-2, 1, "#e8c040"), (1, 1, "#6ac05a")):
+        s.r(16 + dx, 44 + dy, 2, 2, rgb(c) if not night else mix(rgb(c), rgb("#fff4c0"), 0.4))
+    # porte en arc
+    s.r(12, 55, 8, 13, rgb("#3a2414"))
+    s.r(13, 54, 6, 1, rgb("#3a2414"))
+    s.r(13, 56, 6, 12, rgb("#7a4e2c"))
+    s.r(16, 56, 1, 12, rgb("#5a3a20"))
+    s.r(14, 55, 4, 1, rgb("#7a4e2c"))
+    # fenêtres hautes
+    for x in (5, 24):
+        s.r(x, 46, 3, 8, rgb("#4a3a2a"))
+        s.r(x, 47, 3, 6, rgb("#ffd76a") if night else rgb("#5a7aa0"))
+        s.p(x + 1, 46, rgb("#ffd76a") if night else rgb("#5a7aa0"))
+    s.outline()
+    s.shadow(16, 71.5, 17, 2)
+    return s
+
+
+def library(night):
+    """Bibliothèque : façade à colonnes, toit vert, livres derrière les vitres."""
+    s = Spr(32, 54)
+    st, lo, hi = rgb("#d8ccb0"), rgb("#a89c80"), rgb("#f0e6cc")
+    roofc = [rgb(c) for c in ("#6ab08a", "#4a8a6a", "#346a50", "#224a36")]
+    stone_base(s, 0, 46, 32, 8, STONE)
+    s.r(1, 26, 30, 20, st)
+    # colonnes
+    for x in (2, 9, 20, 27):
+        s.r(x, 26, 3, 20, hi)
+        s.r(x + 2, 26, 1, 20, lo)
+        s.r(x - 1, 26, 5, 1, lo)
+        s.r(x - 1, 44, 5, 2, lo)
+    # fenêtres avec étagères
+    for x in (5, 23):
+        s.r(x - 1, 30, 4, 10, rgb("#3a2a1a"))
+        s.r(x, 31, 2, 8, rgb("#ffd76a") if night else rgb("#3a5a7e"))
+        for y in (33, 36):
+            s.r(x, y, 2, 1, rgb("#c84a3a"))
+            s.p(x + 1, y, rgb("#3a8ac0"))
+    # porte
+    s.r(12, 33, 8, 13, rgb("#3a2414"))
+    s.r(13, 34, 6, 12, rgb("#6a4224"))
+    s.r(16, 34, 1, 12, rgb("#4a2c16"))
+    s.p(15, 40, rgb("#f0c050"))
+    s.p(17, 40, rgb("#f0c050"))
+    # fronton
+    for i in range(8):
+        s.r(16 - i * 2, 18 + i, i * 4, 1, st if i < 7 else lo)
+    s.r(13, 21, 6, 3, rgb("#d4ac50"))
+    s.r(14, 22, 4, 1, rgb("#8a6a2a"))
+    # toit
+    shingles(s, 0, 6, 32, 13, roofc, taper=4)
+    s.r(0, 25, 32, 1, lo)
+    s.r(4, 5, 24, 1, rgb("#9ad8b0"))
+    s.outline()
+    s.shadow(16, 53.5, 17, 2)
+    return s
+
+
+def well():
+    """Puits en pierre, petit toit, seau."""
+    s = Spr(16, 26)
+    s.ellipse(8, 20, 7, 4.5, STONE[0])
+    s.ellipse(8, 19, 5.5, 3, rgb("#2a3a4a"))
+    s.ellipse(8, 19.5, 4, 2, rgb("#3a6a9a"))
+    for x in range(2, 15, 3):
+        s.p(x, 22, STONE[2])
+        s.p(x + 1, 23, STONE[1])
+    s.r(2, 6, 1, 13, BEAM)
+    s.r(13, 6, 1, 13, BEAM)
+    for i in range(5):
+        s.r(1 + i, 5 - i, 14 - i * 2, 1, rgb("#a4473a") if i % 2 else rgb("#c4604a"))
+    s.r(0, 6, 16, 1, rgb("#7a3028"))
+    s.r(3, 9, 10, 1, rgb("#8a6a3a"))
+    s.r(7, 10, 1, 4, rgb("#b8a888"))
+    s.r(6, 14, 3, 3, rgb("#7a7480"))
+    s.outline()
+    s.shadow(8, 24.5, 8, 1.6)
+    return s
+
+
+def fountain():
+    """Fontaine de place : bassin octogonal, jets d'eau (3 images)."""
+    frames = []
+    for f in range(3):
+        s = Spr(32, 34)
+        s.ellipse(16, 25, 15, 8, STONE[0])
+        s.ellipse(16, 24, 13, 6.5, STONE[2])
+        s.ellipse(16, 24.5, 11.5, 5.5, rgb("#3a6a9a"))
+        for (x, y) in ((8, 24), (20, 23), (13, 27), (24, 26)):
+            s.p(x + f, y, rgb("#8ac4ee"))
+        s.r(14, 12, 4, 13, STONE[0])
+        s.r(14, 12, 1, 13, STONE[2])
+        s.ellipse(16, 12, 5, 2, STONE[2])
+        s.ellipse(16, 11.5, 3.5, 1.2, rgb("#5a9ad0"))
+        # jets
+        for side in (-1, 1):
+            for t in range(6):
+                x = 16 + side * (2 + t)
+                y = 10 - 4 + int((t - 2.5) ** 2 * 0.5) + (f if t > 3 else 0) % 2
+                s.p(x, y, rgb("#bfe4ff"))
+        s.r(15, 3 + f % 2, 2, 7, rgb("#bfe4ff"))
+        s.p(15, 2 + f % 2, rgb("#ffffff"))
+        s.r(2, 29, 28, 1, STONE[1])
+        s.outline(0.45)
+        s.shadow(16, 32, 15, 2)
+        frames.append(s)
+    return frames
+
+
+def lamp(night):
+    """Lampadaire en fer forgé."""
+    s = Spr(16, 34)
+    iron, ilo = rgb("#3a3a46"), rgb("#24242e")
+    s.r(6, 30, 4, 3, iron)
+    s.r(7, 10, 2, 21, iron)
+    s.r(8, 10, 1, 21, ilo)
+    s.r(5, 9, 6, 1, iron)
+    s.r(5, 2, 6, 7, rgb("#ffe08a") if night else rgb("#a8b4bc"))
+    s.r(5, 2, 1, 7, iron)
+    s.r(10, 2, 1, 7, iron)
+    s.r(4, 1, 8, 1, iron)
+    s.r(6, 0, 4, 1, iron)
+    s.r(7, 3, 2, 4, rgb("#fff8d0") if night else rgb("#d0dce4"))
+    s.outline()
+    s.shadow(8, 32.5, 5, 1.2)
+    if night:
+        s.ellipse(8, 5, 7, 7, (255, 230, 150, 50))
+    return s
+
+
+def bench():
+    """Banc de bois avec jardinière."""
+    s = Spr(16, 16)
+    wood, wlo, whi = rgb("#9a6c40"), rgb("#6a4626"), rgb("#b88a5a")
+    s.r(1, 5, 14, 2, wood)
+    s.r(1, 5, 14, 1, whi)
+    s.r(1, 8, 14, 3, wood)
+    s.r(1, 8, 14, 1, whi)
+    s.r(1, 10, 14, 1, wlo)
+    for x in (2, 13):
+        s.r(x, 7, 1, 7, wlo)
+    s.outline()
+    s.shadow(8, 14.5, 7, 1.4)
+    return s
+
+
+def rampart():
+    """Segment de rempart : grosses pierres et créneaux (s'aligne avec ses voisins)."""
+    s = Spr(16, 30)
+    st, lo, hi = rgb("#9a9488"), rgb("#6a645a"), rgb("#bab4a6")
+    s.r(0, 8, 16, 22, st)
+    for j, y in enumerate(range(8, 30, 4)):
+        s.r(0, y, 16, 1, lo)
+        for x in range((j % 2) * 4, 16, 8):
+            s.r(x, y + 1, 1, 3, lo)
+            s.r(x + 1, y + 1, 5, 1, hi)
+    s.r(0, 8, 16, 1, hi)
+    for x in (0, 10):
+        s.r(x, 2, 6, 6, st)
+        s.r(x, 2, 6, 1, hi)
+        s.r(x + 5, 3, 1, 5, lo)
+    s.r(0, 28, 16, 2, lo)
+    s.r(2, 14, 1, 3, rgb("#4a7a3a"))
+    s.p(3, 15, rgb("#5a9a44"))
+    s.shadow(8, 29.5, 8, 1.2)
+    return s
+
+
 def soft_glow():
     s = Spr(32, 32)
     for y in range(32):
@@ -1441,6 +1822,16 @@ def build_sprites():
     items.append(("mill_blades", [mill_blades()], 18, 18))
     items.append(("tower", [tower()], 0, 48))
     items.append(("statue", [statue(False), statue(True)], 0, 42))
+    items.append(("tavern", [tavern(False), tavern(True)], 0, 58))
+    items.append(("bakery", [bakery(False), bakery(True)], 0, 50))
+    items.append(("market", [market()], 0, 36))
+    items.append(("chapel", [chapel(False), chapel(True)], 0, 72))
+    items.append(("library", [library(False), library(True)], 0, 54))
+    items.append(("well", [well()], 0, 26))
+    items.append(("fountain", fountain(), 0, 34))
+    items.append(("lamp", [lamp(False), lamp(True)], 0, 34))
+    items.append(("bench", [bench()], 0, 16))
+    items.append(("rampart", [rampart()], 0, 30))
     items.append(("glow", [soft_glow()], 16, 16))
     for name, size in (("attack", 32), ("interact", 24), ("soul", 24), ("potion", 20), ("bag", 18), ("build", 18), ("map", 18), ("pause", 18)):
         items.append(("btn_" + name, [button(name, size, False), button(name, size, True)], 0, 0))

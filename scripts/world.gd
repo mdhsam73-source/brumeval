@@ -107,6 +107,7 @@ var sword := false
 var armor := false
 var relic := false
 var spouse := ""
+var town_seen := 0
 var body := {}
 var shell := {}
 var atk_cd := 0.0
@@ -279,6 +280,7 @@ func new_game(s: int) -> void:
 	_add_tents()
 	fill_spawns(true)
 	qbase = quest_value(0)
+	town_seen = town_lv()
 
 
 func _add_tents() -> void:
@@ -341,6 +343,33 @@ func mk_mon(kind: String, l: int, p: Vector2, zone: int) -> Ent:
 
 func count_b(k: String) -> int:
 	return buildings.filter(func(b): return b.k == k).size()
+
+
+func villagers() -> int:
+	return ents.filter(func(e): return e.kind == "villager").size()
+
+
+## 0 = hameau, 1 = bourg, 2 = ville, selon le nombre d'habitants.
+func town_lv() -> int:
+	var n := villagers()
+	var l := 0
+	for i in Defs.TOWN.size():
+		if n >= Defs.TOWN[i]:
+			l = i
+	return l
+
+
+func _check_town() -> void:
+	var l := town_lv()
+	if l > town_seen:
+		town_seen = l
+		toast.emit(Lang.t("town_up", [Lang.t("town_names")[l]]), "good")
+		burst(p_pos + Vector2(0, -10), Color("#ffe27a"), 18)
+
+
+func sell_price(k: String) -> int:
+	var v: int = Defs.SELL[k]
+	return int(ceil(v * Defs.MARKET_SELL)) if count_b("market") else v
 
 
 # ---------------------------------------------------------------- Collisions
@@ -436,6 +465,8 @@ func friendly(e: Ent) -> bool:
 func add_xp(n: int) -> void:
 	if Settings.tier >= 3:
 		n = int(round(n * 1.1))
+	if count_b("chapel"):
+		n = int(round(n * Defs.CHAPEL_XP))
 	xp += n
 	while xp >= xp_need(lvl):
 		xp -= xp_need(lvl)
@@ -505,6 +536,8 @@ func _update_player(dt: float) -> void:
 		for b in buildings:
 			if b.k == "campfire" and b.center().distance_to(p_pos) < 40:
 				p_hp = minf(max_hp(), p_hp + 4 * dt)
+			elif b.k == "well" and b.center().distance_to(p_pos) < 30:
+				p_hp = minf(max_hp(), p_hp + 2 * dt)
 		if spouse != "":
 			p_hp = minf(max_hp(), p_hp + 0.5 * dt)
 
@@ -869,7 +902,7 @@ func add_building(k: String, tx: int, ty: int) -> Bld:
 		for x in range(tx, tx + o.w):
 			bgrid[y * MW + x] = 1
 			_refresh_cell(x, y)
-	var radius := {"campfire": 62, "statue": 70, "house": 26, "tower": 30}
+	var radius := {"campfire": 62, "statue": 70, "house": 26, "tower": 30, "tavern": 32, "bakery": 24, "chapel": 40, "library": 26, "lamp": 46}
 	if radius.has(k):
 		o.light = _make_light(radius[k])
 		o.light.position = o.center() + Vector2(0, -8)
@@ -895,6 +928,7 @@ func place_building() -> void:
 		var v := add_villager(o.center() + Vector2(0, 12))
 		if v:
 			toast.emit(Lang.t("new_villager", [v.name]), "good")
+			_check_town()
 
 
 func _update_buildings(dt: float) -> void:
@@ -934,9 +968,17 @@ func _new_day() -> void:
 		toast.emit(Lang.t("harvest", [farms * 3, mills * 8]), "good")
 	if spouse != "":
 		give("potion")
+	var stews := count_b("bakery")
+	var fgold := count_b("fountain") * villagers()
+	if stews or fgold:
+		give("stew", stews)
+		give("gold", fgold)
+		toast.emit(Lang.t("town_morning", [stews, fgold]), "good")
+	var taverns := count_b("tavern")
 	for e in ents:
 		if e.kind == "villager":
 			e.talks = 0
+			e.aff = mini(100, e.aff + 2 * taverns)
 	for i in MW * MH:
 		if map[i] == T.STUMP and randf() < 0.35:
 			set_tile(i, T.TREE)
@@ -1018,6 +1060,14 @@ func interact() -> void:
 		if b.center().distance_to(p_pos) < 30:
 			if b.k == "workshop":
 				panel_requested.emit("inv")
+				return
+			if b.k == "tavern":
+				if gold >= 5:
+					gold -= 5
+					p_hp = max_hp()
+					toast.emit(Lang.t("tavern_meal"), "good")
+				else:
+					toast.emit(Lang.t("tavern_poor"), "bad")
 				return
 			if b.k == "campfire":
 				if is_night():
@@ -1383,7 +1433,9 @@ func _sync_sprites() -> void:
 		match b.k:
 			"campfire":
 				Art.set_frame(b.spr, "campfire", int(clock / 0.12) % 3)
-			"house", "statue":
+			"fountain":
+				Art.set_frame(b.spr, "fountain", int(clock / 0.2) % 3)
+			"house", "statue", "tavern", "bakery", "chapel", "library", "lamp":
 				Art.set_frame(b.spr, b.k, 1 if nt else 0)
 			"mill":
 				b.spr.get_child(0).rotation = clock / 0.9
@@ -1571,4 +1623,5 @@ func load_save(slot: String) -> bool:
 		ents.append(mk_mon("chef", 6, Vector2(30 * TS + 8, 44 * TS + 8), 1))
 	_add_tents()
 	fill_spawns(true)
+	town_seen = town_lv()
 	return true

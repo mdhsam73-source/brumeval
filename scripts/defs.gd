@@ -29,7 +29,23 @@ const BLD := {
 	"mill": {"w": 2, "h": 2, "cost": {"wood": 15, "stone": 5}},
 	"tower": {"w": 1, "h": 2, "cost": {"wood": 10, "stone": 15}},
 	"statue": {"w": 1, "h": 2, "cost": {"stone": 8}, "tier": 1},
+	"well": {"w": 1, "h": 1, "cost": {"stone": 8}},
+	"lamp": {"w": 1, "h": 1, "cost": {"wood": 2, "stone": 3}},
+	"bench": {"w": 1, "h": 1, "cost": {"wood": 3}},
+	"tavern": {"w": 2, "h": 2, "cost": {"wood": 25, "stone": 10}, "lv": 1},
+	"bakery": {"w": 2, "h": 2, "cost": {"wood": 15, "stone": 12}, "lv": 1},
+	"market": {"w": 2, "h": 2, "cost": {"wood": 20}, "lv": 1},
+	"fountain": {"w": 2, "h": 2, "cost": {"stone": 18}, "lv": 1},
+	"chapel": {"w": 2, "h": 3, "cost": {"wood": 10, "stone": 30}, "lv": 2},
+	"library": {"w": 2, "h": 2, "cost": {"wood": 25, "stone": 20}, "lv": 2},
+	"rampart": {"w": 1, "h": 1, "cost": {"stone": 4}, "lv": 2},
 }
+
+## Étapes du village (hameau, bourg, ville) : nombre d'habitants nécessaire.
+const TOWN := [0, 5, 8]
+## Bonus des bâtiments de ville.
+const MARKET_SELL := 1.5
+const CHAPEL_XP := 1.15
 
 const RECIPES := [
 	{"id": "potion", "need": {"berry": 3}},
@@ -40,6 +56,7 @@ const RECIPES := [
 	{"id": "mask_wolf", "need": {"fang": 3, "hide": 1}, "ws": true},
 	{"id": "mask_wisp", "need": {"ecto": 3}, "ws": true},
 	{"id": "ring", "need": {"crystal": 2, "gold": 30}, "ws": true},
+	{"id": "mask_spectre", "need": {"ecto": 2, "crystal": 2}, "ws": true, "lib": true},
 ]
 
 const GIFTS := {"berry": 4, "meat": 6, "crystal": 15, "ecto": 8, "stew": 12, "fang": 3}

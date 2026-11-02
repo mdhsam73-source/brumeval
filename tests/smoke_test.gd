@@ -50,4 +50,20 @@ func _process(dt):
 		w.time = 0.999
 	if frames == 400:
 		print("day ", w.day, " quest ", w.quest_progress())
+		# Village qui grandit : hameau -> bourg -> ville, et bonus des bâtiments de ville.
+		print("town ", w.town_lv(), " villagers ", w.villagers())
+		for i in 5: w.add_villager(Vector2.INF)
+		w._check_town()
+		print("town after ", w.town_lv(), " seen ", w.town_seen)
+		var base: int = w.sell_price("hide")
+		var x := 6
+		for k in ["tavern", "bakery", "market", "fountain", "chapel", "library", "well", "lamp", "bench", "rampart"]:
+			w.add_building(k, x, 4)
+			x += Defs.BLD[k].w + 1
+		print("hide price ", base, " -> ", w.sell_price("hide"))
+		var st: int = w.inv.get("stew", 0)
+		var g: int = w.gold
+		w._new_day()
+		print("bakery stew +", w.inv.get("stew", 0) - st, " fountain gold +", w.gold - g)
+		ui.open_build(); ui.open_inventory(); ui.close_panel()
 		quit()

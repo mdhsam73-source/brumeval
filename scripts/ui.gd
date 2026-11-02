@@ -386,7 +386,7 @@ func _update_hud() -> void:
 	h_xp.max_value = w.xp_need(w.lvl)
 	h_xp.value = w.xp
 	var m := int(fmod(w.time * 24.0, 24.0) * 60)
-	h_gold.text = Lang.t("gold", [w.gold]) + "   " + Lang.t("day", [w.day, "%02d:%02d" % [m / 60, m % 60]])
+	h_gold.text = Lang.t("gold", [w.gold]) + "   " + Lang.t("day", [w.day, "%02d:%02d" % [m / 60, m % 60]]) + "   " + Lang.t("town_names")[w.town_lv()]
 	h_state.text = Lang.t("in_body", [Lang.nm(w.body.kind)]) if w.body else (Lang.t("masked", [Lang.nm(w.mask)]) if w.mask != "" else "")
 	var q: Dictionary = w.quest_progress()
 	if q.is_empty():
@@ -691,6 +691,9 @@ func open_inventory() -> void:
 		panel_box.add_child(_label(Lang.t("need_ws"), 7, C_DIM, true))
 	for r in Defs.RECIPES:
 		var done: bool = r.get("once", false) and w.get(r.id)
+		var no_lib: bool = r.get("lib", false) and not w.count_b("library")
+		if no_lib:
+			continue
 		var dis: bool = done or (r.get("ws", false) and not ws) or not w.has(r.need)
 		var id: String = r.id
 		var btn := _button("✓" if done else Lang.t("craft"), func():
@@ -713,12 +716,20 @@ func open_build() -> void:
 		return
 	_open("build", Lang.t("build"))
 	panel_box.add_child(_label(Lang.t("build_help"), 7, C_DIM, true))
+	var tl: int = w.town_lv()
+	var names: Array = Lang.t("town_names")
+	var status: String = Lang.t("town_max", [names[tl]]) if tl + 1 >= Defs.TOWN.size() else Lang.t("town_next", [names[tl], Defs.TOWN[tl + 1] - w.villagers(), names[tl + 1]])
+	panel_box.add_child(_label(status, 8, C_BRASS, true))
 	for k in Defs.BLD:
 		var b: Dictionary = Defs.BLD[k]
-		var lock: bool = b.has("tier") and Settings.tier < b.tier
+		var need_lv: int = b.get("lv", 0)
+		var lock: bool = (b.has("tier") and Settings.tier < b.tier) or need_lv > tl
 		var title: String = Lang.nm(k) + ("  [%s]" % Lang.t("tier_names")[b.tier] if b.has("tier") else "")
+		var info: String = _cost(b.cost) + " — " + Lang.DESC[Settings.lang][k]
+		if need_lv > tl:
+			info = Lang.t("need_town", [names[need_lv]]) + " — " + Lang.DESC[Settings.lang][k]
 		var btn := _button(Lang.t("build"), func(): close_panel(); w.placing = k, lock or not w.has(b.cost))
-		panel_box.add_child(_row(title, _cost(b.cost) + " — " + Lang.DESC[Settings.lang][k], btn))
+		panel_box.add_child(_row(title, info, btn))
 	panel_box.add_child(_button(Lang.t("close"), close_panel))
 
 
@@ -770,9 +781,9 @@ func open_dialog(e, line: String = "") -> void:
 		for k in Defs.SELL:
 			var n: int = w.inv.get(k, 0)
 			if n:
-				acts.append(_button("%s %d %s (+%d)" % [Lang.t("sell"), n, Lang.nm(k), n * Defs.SELL[k]], func():
+				acts.append(_button("%s %d %s (+%d)" % [Lang.t("sell"), n, Lang.nm(k), n * w.sell_price(k)], func():
 					w.take({k: n})
-					w.gold += n * Defs.SELL[k]
+					w.gold += n * w.sell_price(k)
 					open_dialog(e)))
 	elif not w.body:
 		if say == "":
