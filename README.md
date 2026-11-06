@@ -2,6 +2,14 @@
 
 RPG pixel vu de dessus : masques, transfert d'âme, village à bâtir, options sociales. Version Godot du prototype web.
 
+## Survie et monde cruel (0.6)
+
+- Faim, énergie et moral : manger (baies, viande, pain, ragoût), se reposer au feu, garder le moral (fêtes, rendez-vous, mariage).
+- Blessures : saignement (bandage ou potion) et entorse (repos). Pas de soin gratuit quand on a faim.
+- Bandits, ruines à fouiller (butin, embuscades), réfugiés à aider, chasser ou dépouiller.
+- Les villageois meurent pour de bon (une tombe est creusée) et la brume peut en emporter la nuit si le village est mal protégé.
+- Portraits de dialogue avec expressions, couleurs plus ternes, boue et sang (désactivable dans les réglages).
+
 ## Lancer le jeu
 
 1. Installer [Godot 4.3](https://godotengine.org/download) (version standard, pas .NET).

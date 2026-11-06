@@ -15,9 +15,10 @@ const MON := {
 	"chef": {"hp": 150, "atk": 8, "spd": 34, "xp": 140, "gold": [60, 80], "aggro": 95, "boss": true, "drops": [["mask_gob", 1.0], ["crystal", 1.0]]},
 	"loup": {"hp": 30, "atk": 5, "spd": 60, "xp": 16, "gold": [0, 2], "aggro": 90, "drops": [["fang", 0.5], ["hide", 0.55], ["meat", 0.6], ["mask_wolf", 0.04]]},
 	"feufollet": {"hp": 26, "atk": 7, "spd": 42, "xp": 26, "gold": [2, 6], "aggro": 80, "fly": true, "drops": [["ecto", 0.6], ["crystal", 0.2], ["mask_wisp", 0.04]]},
+	"bandit": {"hp": 34, "atk": 6, "spd": 46, "xp": 22, "gold": [4, 12], "aggro": 85, "human": true, "drops": [["bandage", 0.4], ["meat", 0.3], ["bread", 0.35]]},
 	"spectre": {"hp": 60, "atk": 11, "spd": 40, "xp": 50, "gold": [8, 15], "aggro": 90, "fly": true, "drops": [["crystal", 0.5], ["mask_spectre", 0.1]]},
 }
-const FACTION := {"gobelin": "gobelin", "chef": "gobelin", "loup": "loup", "feufollet": "feufollet", "spectre": "spectre"}
+const FACTION := {"bandit": "bandit", "gobelin": "gobelin", "chef": "gobelin", "loup": "loup", "feufollet": "feufollet", "spectre": "spectre"}
 const MASKF := {"mask_gob": "gobelin", "mask_wolf": "loup", "mask_wisp": "feufollet", "mask_spectre": "spectre"}
 const MASKC := {"mask_gob": Color("#6c9a3a"), "mask_wolf": Color("#8a8c94"), "mask_wisp": Color("#7cd0f0"), "mask_spectre": Color("#b48ae6")}
 
@@ -39,16 +40,26 @@ const BLD := {
 	"chapel": {"w": 2, "h": 3, "cost": {"wood": 10, "stone": 30}, "lv": 2},
 	"library": {"w": 2, "h": 2, "cost": {"wood": 25, "stone": 20}, "lv": 2},
 	"rampart": {"w": 1, "h": 1, "cost": {"stone": 4}, "lv": 2},
+	# Décors du monde (pas dans le menu de construction).
+	"ruin": {"w": 2, "h": 2, "cost": {}, "hidden": true},
+	"grave": {"w": 1, "h": 1, "cost": {}, "hidden": true},
 }
 
 ## Étapes du village (hameau, bourg, ville) : nombre d'habitants nécessaire.
 const TOWN := [0, 5, 8]
 ## Bonus des bâtiments de ville.
 const MARKET_SELL := 1.5
+
+## Survie : points perdus par seconde (une journée = DAYLEN secondes).
+const HUNGER_RATE := 100.0 / (DAYLEN * 1.6)
+const FATIGUE_RATE := 100.0 / (DAYLEN * 1.4)
+## Nourriture : [faim rendue, moral].
+const FOOD := {"berry": [8, 0], "meat": [14, -3], "stew": [40, 8], "bread": [25, 4]}
 const CHAPEL_XP := 1.15
 
 const RECIPES := [
 	{"id": "potion", "need": {"berry": 3}},
+	{"id": "bandage", "need": {"hide": 1}, "n": 2},
 	{"id": "stew", "need": {"meat": 1, "berry": 2}},
 	{"id": "sword", "need": {"stone": 6, "wood": 4}, "ws": true, "once": true},
 	{"id": "armor", "need": {"hide": 4}, "ws": true, "once": true},
@@ -70,6 +81,7 @@ const ZONES := [
 	{"kind": "gobelin", "cap": 4, "lv": [3, 4], "a": [26, 40, 34, 48]},
 	{"kind": "loup", "cap": 8, "lv": [3, 6], "a": [42, 13, 70, 32]},
 	{"kind": "feufollet", "cap": 7, "lv": [6, 9], "a": [40, 34, 70, 51]},
+	{"kind": "bandit", "cap": 5, "lv": [2, 5], "a": [8, 2, 34, 12]},
 	{"kind": "spectre", "cap": 5, "lv": [9, 12], "a": [60, 2, 69, 8]},
 ]
 

@@ -11,6 +11,8 @@ var diff := "normal"
 ## En démo il se règle dans les Paramètres ; en version finale il vient du serveur de liaison Patreon.
 var tier := 0
 var gold_skin := true
+## Sang et taches au sol (désactivable).
+var gore := true
 ## Lumières dynamiques la nuit : jolies mais coûteuses sur les petits téléphones.
 var lights := not OS.has_feature("mobile")
 ## Économie d'énergie : limite à 30 images par seconde (batterie, vieux PC).
@@ -38,6 +40,7 @@ func load_settings() -> void:
 	lights = c.get_value("s", "lights", lights)
 	eco = c.get_value("s", "eco", eco)
 	touch = c.get_value("s", "touch", touch)
+	gore = c.get_value("s", "gore", gore)
 	apply()
 
 
@@ -53,7 +56,7 @@ func touch_on() -> bool:
 
 func save_settings() -> void:
 	var c := ConfigFile.new()
-	for k in ["lang", "vol", "shake", "diff", "tier", "gold_skin", "lights", "eco", "touch"]:
+	for k in ["lang", "vol", "shake", "diff", "tier", "gold_skin", "lights", "eco", "touch", "gore"]:
 		c.set_value("s", k, get(k))
 	c.save(PATH)
 

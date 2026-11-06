@@ -75,6 +75,13 @@ static func frame_texture(name: String, i: int) -> AtlasTexture:
 	return t
 
 
+## Portrait de dialogue 48×48. Expressions : n neutre, h content, s triste, p peur/douleur, a colère.
+static func portrait(key: String, ex := "n") -> AtlasTexture:
+	if not AtlasData.SPRITES.has(key):
+		key = "pt_villager_0"
+	return frame_texture(key, maxi(0, "nhspa".find(ex)))
+
+
 static func light_texture() -> GradientTexture2D:
 	if _cache.has("light"):
 		return _cache["light"]
