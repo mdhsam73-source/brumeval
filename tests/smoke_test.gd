@@ -66,4 +66,18 @@ func _process(dt):
 		w._new_day()
 		print("bakery stew +", w.inv.get("stew", 0) - st, " fountain gold +", w.gold - g)
 		ui.open_build(); ui.open_inventory(); ui.close_panel()
+		# Scènes cinématiques : chacune se lance, se passe, et rend la main au jeu.
+		var v = null
+		for e in w.ents:
+			if e.kind == "villager": v = e; break
+		var chef = null
+		for e in w.ents:
+			if e.kind == "chef": chef = e; break
+		for sc in [["intro", null], ["chef", chef], ["chef_down", null], ["echo", "forest"], ["echo", "crypt"], ["festival", 1], ["date", v], ["wedding", v]]:
+			ui.play_scene(sc[0], sc[1])
+			var ok: bool = ui.cutscene.playing() and w.scene_on
+			ui.cutscene.skip()
+			print("scene ", sc[0], " ", ok, " -> ", not w.scene_on)
+		print("echoes ", w.flags.get("echoes"), " date ", w.flags.get("date_" + v.name, false))
+		ui.open_journal(); ui.close_panel()
 		quit()

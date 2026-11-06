@@ -6,6 +6,7 @@ extends Node2D
 signal toast(text: String, kind: String)
 signal dialog_requested(npc)
 signal panel_requested(kind: String)
+signal scene_requested(id: String, arg: Variant)
 
 const TS := Defs.TS
 const MW := Defs.MW
@@ -73,6 +74,13 @@ class Bld:
 
 var mode := "title"
 var paused := false
+## Pendant une scène cinématique : le jeu est figé et la caméra suit scene_cam.
+var scene_on := false
+var scene_cam := Vector2.INF
+## Combat plus intense : micro-pause à l'impact et ralenti à la mort d'un boss.
+var hitstop := 0.0
+var slow_t := 0.0
+var _scene_check := 0.0
 var map := PackedByteArray()
 var bgrid := PackedByteArray()
 var thp := {}
@@ -365,6 +373,53 @@ func _check_town() -> void:
 		town_seen = l
 		toast.emit(Lang.t("town_up", [Lang.t("town_names")[l]]), "good")
 		burst(p_pos + Vector2(0, -10), Color("#ffe27a"), 18)
+		scene_requested.emit("festival", l)
+
+
+## Déclenche les scènes de l'histoire quand le joueur arrive quelque part pour la première fois.
+func _check_scenes(dt: float) -> void:
+	_scene_check -= dt
+	if _scene_check > 0 or body or dead_t > 0:
+		return
+	_scene_check = 0.5
+	var b := Defs.biome(int(p_pos.x / TS), int(p_pos.y / TS))
+	if b in ["forest", "marsh", "crypt"] and not has_echo(b):
+		scene_requested.emit("echo", b)
+		return
+	if not flags.get("seen_chef", false):
+		for e in ents:
+			if e.kind == "chef" and not e.dead and e.pos.distance_to(p_pos) < 110:
+				flags["seen_chef"] = true
+				scene_requested.emit("chef", e)
+				return
+
+
+func has_echo(id: String) -> bool:
+	return flags.get("echoes", []).has(id)
+
+
+func add_echo(id: String) -> void:
+	if has_echo(id):
+		return
+	var a: Array = flags.get("echoes", [])
+	a.append(id)
+	flags["echoes"] = a
+	toast.emit(Lang.t("echo_new"), "good")
+
+
+## Un joli coin au bord de l'eau près du village, pour les rendez-vous.
+func scenic_spot() -> Vector2:
+	var best := Vector2.INF
+	var cx := Defs.VX
+	var cy := Defs.VY
+	for r in range(3, 16):
+		for y in range(cy - r, cy + r + 1):
+			for x in range(cx - r, cx + r + 1):
+				if x < 2 or y < 2 or x >= MW - 2 or y >= MH - 2:
+					continue
+				if map[y * MW + x] == T.WATER and map[(y - 1) * MW + x] in [T.GRASS, T.FLOWER] and map[(y - 1) * MW + x - 2] in [T.GRASS, T.FLOWER, T.PATH] and not bgrid[(y - 1) * MW + x]:
+					return Vector2(x * TS + 8, (y - 1) * TS + 8)
+	return Scenes.village_center() + Vector2(0, 60) if best == Vector2.INF else best
 
 
 func sell_price(k: String) -> int:
@@ -560,7 +615,17 @@ func player_attack() -> void:
 					if o.is_mon() and not o.ally and Defs.FACTION[o.kind] == f and o.pos.distance_to(e.pos) < 110:
 						o.prov = 10
 				toast.emit(Lang.t("mask_broken"), "bad")
-			damage_e(e, maxi(1, int(round(atk_p() * randf_range(0.85, 1.15)))), p_pos)
+			var dmg := maxi(1, int(round(atk_p() * randf_range(0.85, 1.15))))
+			if randf() < 0.12:
+				dmg = int(round(dmg * 1.8))
+				float_t(e.pos + Vector2(0, -28), Lang.t("crit"), Color("#ffd76a"))
+				burst(e.pos + Vector2(0, -8), Color("#fff0a0"), 10)
+				if Settings.shake:
+					shake = maxf(shake, 0.12)
+				hitstop = 0.08
+			else:
+				hitstop = maxf(hitstop, 0.035)
+			damage_e(e, dmg, p_pos)
 	if not hit:
 		_hit_tile(int(floor(hit_p.x / TS)), int(floor((hit_p.y + 3) / TS)))
 
@@ -729,6 +794,12 @@ func _kill(e: Ent) -> void:
 	burst(e.pos + Vector2(0, -6), Color("#dcdcdc"), 10)
 	if e.kind == "chef":
 		toast.emit(Lang.t("chef_down"), "good")
+		slow_t = 0.9
+		shake = 0.4
+		burst(e.pos + Vector2(0, -14), Color("#ffd76a"), 30)
+		if not flags.get("seen_chef_down", false):
+			flags["seen_chef_down"] = true
+			scene_requested.emit("chef_down", null)
 		flags["chef_day"] = day
 
 
@@ -1135,8 +1206,15 @@ func _make_light(radius: float) -> PointLight2D:
 
 func _process(dt: float) -> void:
 	dt = minf(dt, 0.05)
+	if slow_t > 0:
+		slow_t -= dt
+		dt *= 0.3
 	clock += dt
-	if mode == "play" and not paused:
+	var frozen := hitstop > 0
+	hitstop -= dt
+	if mode == "play" and scene_on:
+		shake = maxf(0, shake - dt)
+	elif mode == "play" and not paused and not frozen:
 		time += dt / Defs.DAYLEN
 		if time >= 1.0:
 			time -= 1.0
@@ -1153,6 +1231,7 @@ func _process(dt: float) -> void:
 			spawn_t = 25
 			fill_spawns(false)
 		shake = maxf(0, shake - dt)
+		_check_scenes(dt)
 	elif mode == "title":
 		time = 0.62
 		for e in ents:
@@ -1186,6 +1265,8 @@ func _process(dt: float) -> void:
 func _update_camera() -> void:
 	var half := get_viewport_rect().size * 0.5
 	var target := p_pos + Vector2(0, -8)
+	if scene_on and scene_cam != Vector2.INF:
+		target = scene_cam
 	if mode == "title":
 		target = Vector2((sin(clock * 0.05) * 0.5 + 0.5) * (MW * TS - half.x * 2) + half.x, (cos(clock * 0.04) * 0.5 + 0.5) * (MH * TS - half.y * 2) + half.y)
 	cam.position = Vector2(clampf(target.x, half.x, MW * TS - half.x), clampf(target.y, half.y, MH * TS - half.y)).round()
@@ -1193,7 +1274,7 @@ func _update_camera() -> void:
 
 
 func _unhandled_input(ev: InputEvent) -> void:
-	if mode != "play" or paused:
+	if mode != "play" or paused or scene_on:
 		return
 	if placing != "":
 		if ev.is_action_pressed("pause"):
