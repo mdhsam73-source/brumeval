@@ -12,7 +12,7 @@ config_version=5
 
 config/name="Brumeval"
 config/description="RPG pixel : masques, transfert d'âme, village à bâtir."
-config/version="0.3.0"
+config/version="0.5.0"
 run/main_scene="res://scenes/main.tscn"
 config/features=PackedStringArray("4.3", "GL Compatibility")
 config/icon="res://icon.svg"

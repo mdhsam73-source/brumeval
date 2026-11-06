@@ -15,6 +15,8 @@ var world: Node2D
 var theme_ui := Theme.new()
 var title_root: Control
 var hud_root: Control
+var cutscene: Control
+var hurt_flash: ColorRect
 var panel_root: Control
 var panel_box: VBoxContainer
 var panel_kind := ""
@@ -78,6 +80,13 @@ func _ready() -> void:
 	toasts.alignment = BoxContainer.ALIGNMENT_END
 	toasts.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(toasts)
+	hurt_flash = ColorRect.new()
+	hurt_flash.color = Color(0.8, 0.05, 0.05, 0)
+	hurt_flash.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	hurt_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(hurt_flash)
+	cutscene = preload("res://scripts/cutscene.gd").new()
+	root.add_child(cutscene)
 	panel_root = _build_panel()
 	root.add_child(panel_root)
 
@@ -87,7 +96,27 @@ func bind(w: Node2D) -> void:
 	world.toast.connect(show_toast)
 	world.dialog_requested.connect(open_dialog)
 	world.panel_requested.connect(_on_panel_requested)
+	world.scene_requested.connect(play_scene)
+	cutscene.world = w
 	show_title()
+
+
+## Lance une scène cinématique (histoire, fête, romance). Ferme les menus ouverts.
+func play_scene(id: String, arg: Variant = null) -> void:
+	if cutscene.playing() or world.mode != "play":
+		return
+	close_panel()
+	var steps: Array = []
+	match id:
+		"intro": steps = Scenes.intro(world)
+		"chef": steps = Scenes.chef(world, arg)
+		"chef_down": steps = Scenes.chef_down(world)
+		"echo": steps = Scenes.echo(world, arg)
+		"festival": steps = Scenes.festival(world, arg)
+		"date": steps = Scenes.date(world, arg)
+		"wedding": steps = Scenes.wedding(world, arg)
+	if not steps.is_empty():
+		cutscene.play(steps)
 
 
 # ---------------------------------------------------------------- Thème
@@ -278,7 +307,7 @@ func show_title() -> void:
 	var any_save := ["auto", "1", "2", "3"].any(func(s): return not world.read_save(s).is_empty())
 	var cont := _button(Lang.t("continue"), _continue, not any_save)
 	mv.add_child(cont)
-	mv.add_child(_button(Lang.t("new_game"), func(): world.new_game(randi()); start_play()))
+	mv.add_child(_button(Lang.t("new_game"), func(): world.new_game(randi()); start_play(); play_scene("intro")))
 	mv.add_child(_button(Lang.t("load"), func(): open_saves(false)))
 	mv.add_child(_button(Lang.t("settings"), open_settings))
 	mv.add_child(_button(Lang.t("controls"), open_controls))
@@ -386,7 +415,7 @@ func _update_hud() -> void:
 	h_xp.max_value = w.xp_need(w.lvl)
 	h_xp.value = w.xp
 	var m := int(fmod(w.time * 24.0, 24.0) * 60)
-	h_gold.text = Lang.t("gold", [w.gold]) + "   " + Lang.t("day", [w.day, "%02d:%02d" % [m / 60, m % 60]])
+	h_gold.text = Lang.t("gold", [w.gold]) + "   " + Lang.t("day", [w.day, "%02d:%02d" % [m / 60, m % 60]]) + "   " + Lang.t("town_names")[w.town_lv()]
 	h_state.text = Lang.t("in_body", [Lang.nm(w.body.kind)]) if w.body else (Lang.t("masked", [Lang.nm(w.mask)]) if w.mask != "" else "")
 	var q: Dictionary = w.quest_progress()
 	if q.is_empty():
@@ -403,7 +432,10 @@ func _process(dt: float) -> void:
 	# Le vignettage suit le réglage « lumières » : coupé d'office sur téléphone pour garder les FPS.
 	vignette.visible = Settings.lights
 	if world:
-		touch_root.visible = world.mode == "play" and not is_open() and Settings.touch_on()
+		var sc: bool = cutscene.playing()
+		touch_root.visible = world.mode == "play" and not is_open() and Settings.touch_on() and not sc
+		hud_root.modulate.a = 0.0 if sc else 1.0
+		hurt_flash.color.a = clampf(world.hurt_t - 0.15, 0, 0.3) * (0.6 if world.dead_t <= 0 else 0.0) if world.mode == "play" else 0.0
 	if world and world.mode == "play":
 		hud_t -= dt
 		if hud_t <= 0:
@@ -683,6 +715,8 @@ func open_inventory() -> void:
 		eq.append(Lang.t("relic"))
 	if w.mask != "":
 		eq.append(Lang.nm(w.mask))
+	if not w.flags.get("echoes", []).is_empty():
+		panel_box.add_child(_button(Lang.t("journal") + " (%d/4)" % w.flags.echoes.size(), open_journal))
 	panel_box.add_child(_label(Lang.t("equipment"), 9, C_MIST))
 	panel_box.add_child(_label("%s · ATQ %d · DEF %d" % [" · ".join(eq) if eq else "—", w.atk_p(), w.def_p()], 7, C_DIM, true))
 	panel_box.add_child(_label(Lang.t("crafting"), 9, C_MIST))
@@ -691,6 +725,9 @@ func open_inventory() -> void:
 		panel_box.add_child(_label(Lang.t("need_ws"), 7, C_DIM, true))
 	for r in Defs.RECIPES:
 		var done: bool = r.get("once", false) and w.get(r.id)
+		var no_lib: bool = r.get("lib", false) and not w.count_b("library")
+		if no_lib:
+			continue
 		var dis: bool = done or (r.get("ws", false) and not ws) or not w.has(r.need)
 		var id: String = r.id
 		var btn := _button("✓" if done else Lang.t("craft"), func():
@@ -706,6 +743,20 @@ func open_inventory() -> void:
 	panel_box.add_child(_button(Lang.t("close"), close_panel))
 
 
+func open_journal() -> void:
+	_open("inv", Lang.t("journal"))
+	for id in Scenes.ECHO_TITLES:
+		if world.has_echo(id):
+			panel_box.add_child(_label(Scenes.ECHO_TITLES[id][Settings.lang], 9, C_BRASS, true))
+			for l in Scenes.ECHO_LINES[id][Settings.lang]:
+				var lab := _label("« %s »" % l, 8, C_INK, true)
+				lab.custom_minimum_size = Vector2(260, 0)
+				panel_box.add_child(lab)
+		else:
+			panel_box.add_child(_label("???", 9, C_DIM))
+	panel_box.add_child(_button(Lang.t("back"), open_inventory))
+
+
 func open_build() -> void:
 	var w = world
 	if w.body:
@@ -713,12 +764,20 @@ func open_build() -> void:
 		return
 	_open("build", Lang.t("build"))
 	panel_box.add_child(_label(Lang.t("build_help"), 7, C_DIM, true))
+	var tl: int = w.town_lv()
+	var names: Array = Lang.t("town_names")
+	var status: String = Lang.t("town_max", [names[tl]]) if tl + 1 >= Defs.TOWN.size() else Lang.t("town_next", [names[tl], Defs.TOWN[tl + 1] - w.villagers(), names[tl + 1]])
+	panel_box.add_child(_label(status, 8, C_BRASS, true))
 	for k in Defs.BLD:
 		var b: Dictionary = Defs.BLD[k]
-		var lock: bool = b.has("tier") and Settings.tier < b.tier
+		var need_lv: int = b.get("lv", 0)
+		var lock: bool = (b.has("tier") and Settings.tier < b.tier) or need_lv > tl
 		var title: String = Lang.nm(k) + ("  [%s]" % Lang.t("tier_names")[b.tier] if b.has("tier") else "")
+		var info: String = _cost(b.cost) + " — " + Lang.DESC[Settings.lang][k]
+		if need_lv > tl:
+			info = Lang.t("need_town", [names[need_lv]]) + " — " + Lang.DESC[Settings.lang][k]
 		var btn := _button(Lang.t("build"), func(): close_panel(); w.placing = k, lock or not w.has(b.cost))
-		panel_box.add_child(_row(title, _cost(b.cost) + " — " + Lang.DESC[Settings.lang][k], btn))
+		panel_box.add_child(_row(title, info, btn))
 	panel_box.add_child(_button(Lang.t("close"), close_panel))
 
 
@@ -770,9 +829,9 @@ func open_dialog(e, line: String = "") -> void:
 		for k in Defs.SELL:
 			var n: int = w.inv.get(k, 0)
 			if n:
-				acts.append(_button("%s %d %s (+%d)" % [Lang.t("sell"), n, Lang.nm(k), n * Defs.SELL[k]], func():
+				acts.append(_button("%s %d %s (+%d)" % [Lang.t("sell"), n, Lang.nm(k), n * w.sell_price(k)], func():
 					w.take({k: n})
-					w.gold += n * Defs.SELL[k]
+					w.gold += n * w.sell_price(k)
 					open_dialog(e)))
 	elif not w.body:
 		if say == "":
@@ -793,15 +852,20 @@ func open_dialog(e, line: String = "") -> void:
 					open_dialog(e, Lang.t("follow_yes"))
 				else:
 					open_dialog(e, Lang.t("follow_no"))))
+		if not e.spouse and w.spouse == "" and not w.flags.get("date_" + e.name, false):
+			acts.append(_button(Lang.t("date"), func():
+				if e.aff >= 50:
+					play_scene("date", e)
+				else:
+					open_dialog(e, Lang.t("date_no"))))
 		if not e.spouse and w.spouse == "":
 			acts.append(_button(Lang.t("propose"), func():
-				if e.aff >= 80 and w.inv.get("ring", 0):
+				if e.aff >= 80 and w.inv.get("ring", 0) and w.flags.get("date_" + e.name, false):
 					w.take({"ring": 1})
 					e.spouse = true
 					e.aff = 100
 					w.spouse = e.name
-					w.burst(e.pos + Vector2(0, -16), Color("#ff8aa0"), 20)
-					open_dialog(e, Lang.t("propose_yes"))
+					play_scene("wedding", e)
 				else:
 					open_dialog(e, Lang.t("propose_need"))))
 		if e.talks >= 3 and line == "":
