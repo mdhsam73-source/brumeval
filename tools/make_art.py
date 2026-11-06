@@ -427,6 +427,17 @@ def prop(kind, v=0):
             s.r(6, 6, 3, 2, rgb("#f0a0c0"))
             s.p(7, 6, rgb("#ffe0f0"))
         s.outline(0.4)
+    elif kind == "mud":
+        # flaque de boue (v=1 : avec un peu d'eau sale et des traces de pas)
+        s.ellipse(8, 10, 6.5, 3.6, rgb("#4a3a2a"))
+        s.ellipse(7, 9.5, 4.5, 2.4, rgb("#5a4632"))
+        for _ in range(5):
+            s.p(r.randrange(3, 13), r.randrange(8, 13), rgb("#3a2c20"))
+        if v == 1:
+            s.ellipse(9, 10.5, 3, 1.5, rgb("#6a6a5a"))
+            s.p(8, 10, rgb("#9a9a88"))
+            for (x, y) in ((3, 8), (5, 12), (12, 9)):
+                s.r(x, y, 2, 1, rgb("#2e241a"))
     elif kind == "bones":
         c = rgb("#d8d0c0")
         s.r(4, 11, 7, 1, c)
@@ -1660,6 +1671,236 @@ def rampart():
     return s
 
 
+def ruin():
+    """Maison brûlée : murs effondrés, poutres noircies, cendres."""
+    s = Spr(32, 40)
+    st, lo, hi = rgb("#7a7268"), rgb("#524c44"), rgb("#9a9286")
+    char, ash = rgb("#2a2220"), rgb("#5a5450")
+    s.r(1, 26, 30, 14, rgb("#3a3430"))
+    for x in range(2, 30, 3):
+        s.p(x, 30 + (x * 7) % 8, ash)
+    # pans de mur restants
+    for (x, w, h) in ((1, 6, 22), (25, 6, 16), (12, 4, 9)):
+        y0 = 40 - h - 2
+        s.r(x, y0, w, h, st)
+        s.r(x, y0, 1, h, hi)
+        s.r(x + w - 1, y0, 1, h, lo)
+        for y in range(y0 + 2, y0 + h, 3):
+            s.r(x + 1, y, w - 2, 1, lo)
+        # haut cassé en dents de scie
+        for k in range(w):
+            s.r(x + k, y0 - (k * 5) % 3, 1, (k * 5) % 3, st)
+        s.r(x, y0 + h // 3, w, 2, char)
+    # poutres tombées
+    for i in range(14):
+        s.p(6 + i, 22 + i // 2, char)
+        s.p(6 + i, 23 + i // 2, rgb("#4a3424"))
+    for i in range(10):
+        s.p(24 - i, 26 + i // 3, char)
+    # fenêtre vide
+    s.r(2, 24, 3, 4, rgb("#141010"))
+    # braises et fumée
+    s.p(15, 34, rgb("#e8742a"))
+    s.p(18, 36, rgb("#c84a2a"))
+    for (x, y) in ((14, 12), (16, 8), (13, 4), (17, 1)):
+        s.ellipse(x, y, 2.5, 2, (120, 115, 110, 70))
+    s.outline(0.6)
+    s.shadow(16, 39.5, 16, 1.5)
+    return s
+
+
+def grave():
+    """Tombe : croix de bois sur un tertre, quelques fleurs."""
+    s = Spr(16, 22)
+    s.ellipse(8, 18, 6.5, 3, rgb("#5a4432"))
+    s.ellipse(8, 17.5, 5, 2, rgb("#6e5440"))
+    s.r(7, 3, 2, 15, rgb("#7a5634"))
+    s.r(8, 3, 1, 15, rgb("#5a3a20"))
+    s.r(3, 7, 10, 2, rgb("#7a5634"))
+    s.r(3, 8, 10, 1, rgb("#5a3a20"))
+    s.p(4, 17, rgb("#e85a7a"))
+    s.p(12, 18, rgb("#f0d050"))
+    s.outline()
+    s.shadow(8, 20.5, 7, 1.2)
+    return s
+
+
+# ------------------------------------------------------------------ portraits
+
+EXPR = ("n", "h", "s", "p", "a")  # neutre, content, triste, douleur/peur, colère
+
+
+def portrait(P, e):
+    """Portrait 48×48 en buste, éclairé de gauche, pour les dialogues."""
+    s = Spr(48, 48)
+    skin = P.get("skin", ramp("#ecbc92"))
+    hair = P.get("hair", ramp("#3a2418"))
+    tun = P.get("tunic", ramp("#3d5c8a"))
+    kind = P.get("kind", "human")
+    eye_c = P.get("eye", rgb("#20141c"))
+    # fond sombre en vignette
+    for y in range(48):
+        for x in range(48):
+            d = ((x - 24) ** 2 + (y - 22) ** 2) ** 0.5
+            s.p(x, y, mix(rgb("#3a2e34"), rgb("#140e10"), min(1, d / 30)))
+    if kind == "goblin":
+        skin = ramp("#5a8a2e")
+    if kind == "spirit":
+        skin = (rgb("#d8f0ff"), rgb("#a8d4f0"), rgb("#6a9ac0"))
+    # épaules et col
+    s.ellipse(24, 50, 20, 12, tun[1])
+    s.ellipse(18, 47, 8, 6, tun[0])
+    s.ellipse(32, 50, 8, 6, tun[2])
+    s.r(20, 36, 8, 5, skin[2])
+    s.r(19, 39, 10, 2, tun[2])
+    # oreilles de gobelin
+    if kind == "goblin":
+        for side in (-1, 1):
+            for i in range(9):
+                s.r(24 + side * (12 + i), 20 - i // 2, 1, 4 - i // 3, skin[1])
+    # tête
+    s.ellipse(24, 22, 11, 13, skin[1])
+    s.ellipse(21, 19, 7, 8, skin[0])
+    s.ellipse(29, 26, 5, 7, skin[2])
+    # joues
+    if e in ("h",) and kind == "human":
+        s.ellipse(17, 27, 2, 1.2, rgb("#e88a80"))
+        s.ellipse(31, 27, 2, 1.2, rgb("#e88a80"))
+    # yeux
+    ey = 23
+    for ex in (19, 29):
+        if kind == "spirit":
+            s.r(ex - 1, ey - 1, 3, 2, rgb("#ffffff"))
+            s.ellipse(ex + 0.5, ey, 3.5, 2.5, (160, 220, 255, 90))
+            continue
+        if e == "h":
+            s.r(ex - 1, ey, 3, 1, eye_c)
+            s.p(ex - 2, ey + 1, eye_c)
+            s.p(ex + 2, ey + 1, eye_c)
+        elif e == "p":
+            s.r(ex - 1, ey - 1, 3, 3, rgb("#f4f0ec"))
+            s.p(ex, ey, eye_c)
+        else:
+            s.r(ex - 1, ey - 1, 3, 3, rgb("#f4f0ec"))
+            s.r(ex, ey - 1, 2, 3, eye_c)
+            s.p(ex, ey - 1, rgb("#ffffff"))
+    # sourcils
+    for ex, side in ((19, -1), (29, 1)):
+        c = hair[2] if kind == "human" else skin[2]
+        if e == "a":
+            s.p(ex - 2 * side, ey - 4, c)
+            s.r(ex - 1, ey - 3, 3, 1, c)
+            s.p(ex + 2 * side, ey - 2, c)
+        elif e in ("s", "p"):
+            s.p(ex - 2 * side, ey - 2, c)
+            s.r(ex - 1, ey - 3, 3, 1, c)
+            s.p(ex + 2 * side, ey - 4, c)
+        else:
+            s.r(ex - 2, ey - 3, 5, 1, c)
+    # nez et bouche
+    s.r(24, 25, 1, 3, skin[2])
+    s.p(25, 28, skin[2])
+    mouth = rgb("#7a3a34")
+    if kind == "goblin":
+        mouth = rgb("#2a1a10")
+    if kind != "spirit":
+        if e == "h":
+            s.r(21, 31, 7, 1, mouth)
+            s.p(20, 30, mouth)
+            s.p(28, 30, mouth)
+            s.r(22, 32, 5, 1, rgb("#c85a50"))
+        elif e == "s":
+            s.r(22, 32, 5, 1, mouth)
+            s.p(21, 33, mouth)
+            s.p(27, 33, mouth)
+        elif e == "p":
+            s.ellipse(24.5, 32, 2.5, 2, mouth)
+            s.p(15, 20, rgb("#bfe4ff"))
+            s.p(15, 21, rgb("#bfe4ff"))
+        elif e == "a":
+            s.r(21, 32, 7, 1, mouth)
+            s.r(22, 31, 5, 1, rgb("#f4f0ec") if kind == "goblin" else mouth)
+        else:
+            s.r(22, 31, 5, 1, mouth)
+    if kind == "goblin":
+        s.p(21, 31, rgb("#f4f0ec"))
+        s.p(27, 31, rgb("#f4f0ec"))
+    if e == "s" and kind == "human":
+        s.p(18, 26, rgb("#9fd8ff"))
+        s.p(18, 27, rgb("#9fd8ff"))
+    # cheveux / capuche
+    if P.get("hood"):
+        hc = P["hood"]
+        s.ellipse(24, 16, 14, 10, hc[1])
+        s.ellipse(20, 13, 8, 5, hc[0])
+        s.r(10, 16, 4, 22, hc[1])
+        s.r(34, 16, 4, 22, hc[2])
+        s.ellipse(24, 10, 12, 4, hc[1])
+    elif kind == "human":
+        s.ellipse(24, 12, 12, 6, hair[1])
+        s.ellipse(20, 10, 7, 3, hair[0])
+        s.r(12, 12, 4, 11, hair[1])
+        s.r(32, 12, 4, 11, hair[2])
+        for x in range(14, 34, 3):
+            s.r(x, 14, 2, 2 + (x * 3) % 3, hair[1])
+    if P.get("mask_cloth"):
+        s.r(13, 27, 22, 8, rgb("#2a2a30"))
+        s.r(13, 27, 22, 1, rgb("#4a4a52"))
+    if P.get("beard"):
+        s.ellipse(24, 34, 9, 7, hair[1])
+        s.ellipse(22, 33, 5, 4, hair[0])
+        s.r(21, 31, 7, 1, rgb("#7a3a34"))
+    if P.get("hat"):
+        hc = P["hat"]
+        s.ellipse(24, 10, 17, 3, hc[2])
+        s.r(14, 2, 20, 8, hc[1])
+        s.r(14, 2, 6, 8, hc[0])
+        s.r(14, 8, 20, 1, rgb("#8a5a2a"))
+    if P.get("crown"):
+        s.r(15, 6, 18, 4, rgb("#e8c040"))
+        for x in (15, 23, 31):
+            s.r(x, 3, 2, 3, rgb("#e8c040"))
+        s.p(24, 7, rgb("#d84040"))
+    if P.get("dirt"):
+        for (x, y) in ((17, 29), (30, 18), (27, 33), (14, 22)):
+            s.p(x, y, rgb("#6a5040"))
+        s.r(26, 14, 7, 2, rgb("#e8e0d0"))
+        s.p(29, 15, rgb("#a8282a"))
+    if P.get("scar"):
+        for i in range(5):
+            s.p(28 + i // 2, 18 + i, rgb("#a85a50"))
+    if kind == "spirit":
+        for y in range(48):
+            for x in range(48):
+                c = s.get(x, y)
+                if c[3]:
+                    s.px[x, y] = mix(c, rgb("#1a2a40"), 0.25 if y < 40 else 0.5)
+    s.outline(0.6, 255)
+    # cadre doré
+    for x in range(48):
+        s.px[x, 0] = s.px[x, 47] = rgb("#e0a848")
+    for y in range(48):
+        s.px[0, y] = s.px[47, y] = rgb("#e0a848")
+    return s
+
+
+def portraits(people):
+    """Liste (nom, images) : un portrait par expression pour chaque personnage parlant."""
+    skin = ramp("#ecbc92")
+    out = []
+    hero = dict(people["hero"], scar=True)
+    out.append(("pt_hero", [portrait(hero, e) for e in EXPR]))
+    out.append(("pt_elder", [portrait(dict(people["elder"]), e) for e in EXPR]))
+    out.append(("pt_trader", [portrait(dict(people["trader"]), e) for e in EXPR]))
+    for i in range(6):
+        out.append(("pt_villager_%d" % i, [portrait(dict(people["villager_%d" % i]), e) for e in EXPR]))
+    out.append(("pt_refugee", [portrait(dict(people["refugee"], dirt=True), e) for e in EXPR]))
+    out.append(("pt_bandit", [portrait({"tunic": ramp("#4a3a30"), "hair": ramp("#2a2018"), "skin": ramp("#c99a72"), "hood": ramp("#3a3434"), "mask_cloth": True}, e) for e in EXPR]))
+    out.append(("pt_chef", [portrait({"kind": "goblin", "tunic": ramp("#6a4626"), "crown": True, "eye": rgb("#ff4030")}, e) for e in EXPR]))
+    out.append(("pt_veilleur", [portrait({"kind": "spirit", "tunic": ramp("#3a4a6a"), "hood": ramp("#4a5a7a")}, e) for e in EXPR]))
+    return out
+
+
 def soft_glow():
     s = Spr(32, 32)
     for y in range(32):
@@ -1735,6 +1976,18 @@ def button(name, size, pressed):
 
 # ------------------------------------------------------------------ assemblage
 
+def wash(im, k=0.2, dark=0.94):
+    """Délave une image : rapproche chaque couleur de son gris et l'assombrit un peu."""
+    px = im.load()
+    for y in range(im.height):
+        for x in range(im.width):
+            r_, g_, b_, a_ = px[x, y]
+            if a_:
+                l = 0.3 * r_ + 0.59 * g_ + 0.11 * b_
+                px[x, y] = tuple(int((c + (l - c) * k) * dark) for c in (r_, g_, b_)) + (a_,)
+    return im
+
+
 def build_tiles():
     sheet = Image.new("RGBA", (16 * TS, 10 * TS), CLEAR)
     names = {}
@@ -1767,13 +2020,14 @@ def build_tiles():
         sheet.paste(water_tile(m, 1).im, ((c + 1) * TS, r * TS))
         names["water_%d" % m] = [c, r]
     props = [("tallgrass", 0), ("tallgrass", 1), ("tallgrass", 2), ("bush", 0), ("bush", 1), ("mushroom", 0), ("mushroom", 1),
-             ("pebbles", 0), ("fern", 0), ("reeds", 0), ("lily", 0), ("lily", 1), ("bones", 0), ("crystal", 0)]
+             ("pebbles", 0), ("fern", 0), ("reeds", 0), ("lily", 0), ("lily", 1), ("bones", 0), ("crystal", 0), ("mud", 0), ("mud", 1)]
     for i, (k, v) in enumerate(props):
         put("prop_%s_%d" % (k, v), prop(k, v), i, 6)
     trees = [("plain", 0), ("plain", 1), ("forest", 0), ("forest", 1), ("marsh", 0), ("marsh", 1), ("crypt", 0)]
     for i, (k, v) in enumerate(trees):
         sheet.paste(tree(k, v).im, (i * 2 * TS, 7 * TS))
         names["tree_%s_%d" % (k, v)] = [i * 2, 7]
+    wash(sheet)
     sheet.save(os.path.join(ROOT, "tiles.png"))
     return names
 
@@ -1802,6 +2056,8 @@ def build_sprites():
     vcol = [("#b5523b", "#3b2a1e"), ("#3b74b5", "#c9a24a"), ("#6a9a4a", "#1e1a17"), ("#9a4aa0", "#d8d0c0"), ("#c08a3a", "#5a2e1a"), ("#3a9a94", "#2a2a3a")]
     for i, (t, h) in enumerate(vcol):
         people["villager_%d" % i] = {"tunic": ramp(t), "hair": ramp(h), "skin": ramp("#d9a882")}
+    people["bandit"] = {"tunic": ramp("#4a3a30"), "hair": ramp("#2a2018"), "skin": ramp("#c99a72"), "hat": ramp("#3a3434"), "cape": ramp("#2e2a2a")}
+    people["refugee"] = {"tunic": ramp("#7a7268"), "hair": ramp("#6a5a48"), "skin": ramp("#c8a088")}
     items = []
     for name, P in people.items():
         items.append((name, [human(d, f, P) for d in DIRS for f in range(3)], 10, 27))
@@ -1832,6 +2088,9 @@ def build_sprites():
     items.append(("lamp", [lamp(False), lamp(True)], 0, 34))
     items.append(("bench", [bench()], 0, 16))
     items.append(("rampart", [rampart()], 0, 30))
+    items.append(("ruin", [ruin()], 0, 40))
+    items.append(("grave", [grave()], 0, 22))
+    items += [(n, fr, 0, 0) for n, fr in portraits(people)]
     items.append(("glow", [soft_glow()], 16, 16))
     for name, size in (("attack", 32), ("interact", 24), ("soul", 24), ("potion", 20), ("bag", 18), ("build", 18), ("map", 18), ("pause", 18)):
         items.append(("btn_" + name, [button(name, size, False), button(name, size, True)], 0, 0))
@@ -1848,6 +2107,8 @@ def build_sprites():
     H = y + row_h
     sheet = Image.new("RGBA", (W, H), CLEAR)
     for name, im, px, py, w, h, n, ox, oy in placed:
+        if not name.startswith(("btn_", "pt_", "glow")):
+            im = wash(im.copy(), 0.15, 0.96)
         sheet.paste(im, (px, py))
         anims[name] = {"x": px, "y": py, "w": w, "h": h, "n": n, "ox": ox, "oy": oy}
     sheet.save(os.path.join(ROOT, "sprites.png"))

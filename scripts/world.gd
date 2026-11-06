@@ -55,7 +55,7 @@ class Ent:
 		return Defs.MON.has(kind)
 
 	func is_npc() -> bool:
-		return kind == "villager" or kind == "elder" or kind == "trader"
+		return kind == "villager" or kind == "elder" or kind == "trader" or kind == "refugee"
 
 
 class Bld:
@@ -79,6 +79,13 @@ var scene_on := false
 var scene_cam := Vector2.INF
 ## Combat plus intense : micro-pause à l'impact et ralenti à la mort d'un boss.
 var hitstop := 0.0
+## Survie : faim (100 = rassasié), fatigue (100 = épuisé), moral, blessures.
+var hunger := 100.0
+var fatigue := 0.0
+var morale := 60.0
+var bleed_t := 0.0
+var sprain_t := 0.0
+var _starve_msg := 0.0
 var slow_t := 0.0
 var _scene_check := 0.0
 var map := PackedByteArray()
@@ -97,6 +104,9 @@ var ents: Array[Ent] = []
 var buildings: Array[Bld] = []
 var projs: Array = []
 var fx: Array = []
+## Taches de sang au sol : {pos, r, t, seed}. Limitées pour rester léger.
+var stains: Array = []
+var decals: Node2D
 var placing := ""
 var shake := 0.0
 var spawn_t := 0.0
@@ -258,10 +268,18 @@ func _reset(s: int, m: PackedByteArray) -> void:
 	buildings.clear()
 	projs.clear()
 	fx.clear()
+	stains.clear()
+	if decals:
+		decals.queue_redraw()
 	placing = ""
 	p_pos = Vector2((Defs.VX + 0.5) * TS, (Defs.VY + 3) * TS)
 	p_dir = Vector2i(0, 1)
 	p_hp = 60.0
+	hunger = 100.0
+	fatigue = 0.0
+	morale = 60.0
+	bleed_t = 0.0
+	sprain_t = 0.0
 	lvl = 1
 	xp = 0
 	gold = 15
@@ -286,6 +304,7 @@ func new_game(s: int) -> void:
 		add_villager(Vector2.INF)
 	ents.append(mk_mon("chef", 6, Vector2(30 * TS + 8, 44 * TS + 8), 1))
 	_add_tents()
+	_place_ruins()
 	fill_spawns(true)
 	qbase = quest_value(0)
 	town_seen = town_lv()
@@ -472,7 +491,18 @@ func max_hp() -> int:
 func atk_p() -> int:
 	if body:
 		return body.atk
-	return 4 + 2 * (lvl - 1) + (4 if sword else 0) + (5 if relic else 0)
+	var a := 4 + 2 * (lvl - 1) + (4 if sword else 0) + (5 if relic else 0)
+	return maxi(1, int(round(a * surv_mul())))
+
+
+## Épuisement et moral bas affaiblissent les coups.
+func surv_mul() -> float:
+	var m := 1.0
+	if fatigue >= 80:
+		m *= 0.8
+	if morale < 25:
+		m *= 0.85
+	return m
 
 
 func def_p() -> int:
@@ -484,7 +514,14 @@ func def_p() -> int:
 func spd_p() -> float:
 	if body:
 		return minf(95.0, Defs.MON[body.kind].spd * 1.5)
-	return 62.0
+	var sp := 62.0
+	if hunger < 25:
+		sp *= 0.85
+	if fatigue >= 80:
+		sp *= 0.8
+	if sprain_t > 0:
+		sp *= 0.7
+	return sp
 
 
 func body_fly() -> bool:
@@ -522,6 +559,10 @@ func add_xp(n: int) -> void:
 		n = int(round(n * 1.1))
 	if count_b("chapel"):
 		n = int(round(n * Defs.CHAPEL_XP))
+	if morale < 25:
+		n = int(round(n * 0.8))
+	elif morale > 75:
+		n = int(round(n * 1.1))
 	xp += n
 	while xp >= xp_need(lvl):
 		xp -= xp_need(lvl)
@@ -562,9 +603,22 @@ func heal_item(k: String) -> void:
 	if not inv.get(k, 0) or body:
 		return
 	take({k: 1})
-	var h := 60 if k == "stew" else 35
-	p_hp = minf(max_hp(), p_hp + h)
-	float_t(p_pos + Vector2(0, -18), "+%d" % h, Color("#8fe08a"))
+	if k == "bandage":
+		bleed_t = 0.0
+		p_hp = minf(max_hp(), p_hp + 8)
+		toast.emit(Lang.t("bandaged"), "good")
+		return
+	if Defs.FOOD.has(k):
+		var f: Array = Defs.FOOD[k]
+		hunger = minf(100, hunger + f[0])
+		morale = clampf(morale + f[1], 0, 100)
+		float_t(p_pos + Vector2(0, -24), Lang.t("ate"), Color("#e8c878"))
+	var h: int = {"stew": 45, "potion": 30, "berry": 3, "meat": 5}.get(k, 0)
+	if k == "potion":
+		bleed_t = 0.0
+	if h:
+		p_hp = minf(max_hp(), p_hp + h)
+		float_t(p_pos + Vector2(0, -18), "+%d" % h, Color("#8fe08a"))
 
 
 func _update_player(dt: float) -> void:
@@ -576,6 +630,8 @@ func _update_player(dt: float) -> void:
 		if dead_t <= 0:
 			_respawn()
 		return
+	if body.is_empty():
+		_update_survival(dt)
 	var v := Input.get_vector("move_left", "move_right", "move_up", "move_down")
 	p_moving = v.length() > 0.15
 	if p_moving:
@@ -589,12 +645,58 @@ func _update_player(dt: float) -> void:
 		player_attack()
 	if body.is_empty():
 		for b in buildings:
-			if b.k == "campfire" and b.center().distance_to(p_pos) < 40:
-				p_hp = minf(max_hp(), p_hp + 4 * dt)
-			elif b.k == "well" and b.center().distance_to(p_pos) < 30:
-				p_hp = minf(max_hp(), p_hp + 2 * dt)
+			# Le feu réchauffe et soigne un peu, seulement si l'on n'a pas trop faim.
+			if b.k == "campfire" and b.center().distance_to(p_pos) < 40 and hunger > 20:
+				p_hp = minf(max_hp(), p_hp + 1.5 * dt)
+				morale = minf(100, morale + 0.3 * dt)
+			elif b.k == "well" and b.center().distance_to(p_pos) < 30 and hunger > 20:
+				p_hp = minf(max_hp(), p_hp + 1.0 * dt)
 		if spouse != "":
 			p_hp = minf(max_hp(), p_hp + 0.5 * dt)
+
+
+func _update_survival(dt: float) -> void:
+	var near_fire := buildings.any(func(b): return b.k == "campfire" and b.center().distance_to(p_pos) < 50)
+	hunger = maxf(0, hunger - Defs.HUNGER_RATE * dt * (1.4 if p_moving else 1.0))
+	fatigue = minf(100, fatigue + Defs.FATIGUE_RATE * dt)
+	sprain_t = maxf(0, sprain_t - dt)
+	if bleed_t > 0:
+		bleed_t -= dt
+		p_hp -= 1.0 * dt
+		if randf() < dt * 3 and Settings.gore:
+			blood(p_pos + Vector2(randf_range(-3, 3), 0), 1)
+	if hunger <= 0:
+		p_hp -= 0.6 * dt
+		morale = maxf(0, morale - 0.15 * dt)
+	if fatigue >= 100:
+		p_hp -= 0.3 * dt
+	# Le moral baisse dans le noir, loin du feu, et encore plus dans la crypte.
+	var b := Defs.biome(int(p_pos.x / TS), int(p_pos.y / TS))
+	if b == "crypt":
+		morale = maxf(0, morale - 0.25 * dt)
+	elif is_night() and not near_fire:
+		morale = maxf(0, morale - 0.08 * dt)
+	elif morale < 50:
+		morale = minf(50, morale + 0.02 * dt)
+	_starve_msg -= dt
+	if _starve_msg <= 0:
+		var warn := ""
+		if hunger <= 0:
+			warn = "starving"
+		elif hunger < 25:
+			warn = "hungry"
+		elif fatigue >= 80:
+			warn = "tired"
+		elif morale < 20:
+			warn = "despair"
+		if warn != "":
+			toast.emit(Lang.t(warn), "bad")
+			_starve_msg = 30.0
+	if p_hp <= 0 and dead_t <= 0:
+		p_hp = 0
+		dead_t = 1.6
+		bleed_t = 0
+		toast.emit(Lang.t("died"), "bad")
 
 
 func player_attack() -> void:
@@ -673,6 +775,17 @@ func damage_p(amt: int, src: Vector2) -> void:
 	hurt_t = 0.45
 	if Settings.shake:
 		shake = 0.15
+	if Settings.gore:
+		blood(p_pos, 3)
+	if body.is_empty():
+		morale = maxf(0, morale - 1.5)
+		var big := amt >= 8
+		if randf() < (0.35 if big else 0.18) and bleed_t <= 0:
+			bleed_t = 25.0
+			toast.emit(Lang.t("bleeding"), "bad")
+		if big and randf() < 0.3 and sprain_t <= 0:
+			sprain_t = 60.0
+			toast.emit(Lang.t("sprained"), "bad")
 	float_t(p_pos + Vector2(0, -18), "-%d" % d, Color("#ff7a6a"))
 	p_pos = move_pos(p_pos, (p_pos - src).normalized() * 6, body_fly())
 	if body:
@@ -694,8 +807,12 @@ func _respawn() -> void:
 			fire = b
 			break
 	p_pos = fire.center() + Vector2(0, 18) if fire else Vector2((Defs.VX + 0.5) * TS, (Defs.VY + 3) * TS)
-	p_hp = max_hp()
+	p_hp = max_hp() * 0.5
 	gold = int(gold * 0.8)
+	hunger = maxf(hunger, 30)
+	morale = maxf(0, morale - 15)
+	bleed_t = 0
+	sprain_t = 0
 	hurt_t = 1.5
 
 
@@ -761,14 +878,13 @@ func damage_e(e: Ent, amt: int, src: Vector2) -> void:
 	burst(e.pos + Vector2(0, -6), Color("#ffd0a0"), 4)
 	var boss: bool = e.is_mon() and Defs.MON[e.kind].get("boss", false)
 	var fly: bool = e.is_mon() and Defs.MON[e.kind].get("fly", false)
+	if not fly and e.kind != "tent":
+		blood(e.pos, 2)
 	e.pos = move_pos(e.pos, (e.pos - src).normalized() * (2.0 if boss else 7.0), fly)
 	if e.hp > 0:
 		return
 	if e.kind == "villager":
-		e.hp = e.maxhp
-		e.follow = false
-		e.pos = e.home
-		toast.emit(Lang.t("ally_down", [e.name]), "bad")
+		_villager_dies(e, "died_villager")
 	elif e.ally:
 		e.dead = true
 		toast.emit(Lang.t("ally_down", [Lang.nm(e.kind)]), "bad")
@@ -791,7 +907,11 @@ func _kill(e: Ent) -> void:
 			give(dr[0])
 			float_t(e.pos + Vector2(0, yo), "+" + Lang.nm(dr[0]), Color("#bfe0ff"))
 			yo -= 8
-	burst(e.pos + Vector2(0, -6), Color("#dcdcdc"), 10)
+	if d.get("fly", false):
+		burst(e.pos + Vector2(0, -6), Color("#bfe4ff"), 12)
+	else:
+		burst(e.pos + Vector2(0, -6), Color("#dcdcdc"), 6)
+		blood(e.pos, 5)
 	if e.kind == "chef":
 		toast.emit(Lang.t("chef_down"), "good")
 		slow_t = 0.9
@@ -845,7 +965,7 @@ func _update_ent(e: Ent, dt: float) -> void:
 	e.cd -= dt
 	e.prov -= dt
 	e.moving = false
-	if e.kind == "elder" or e.kind == "trader":
+	if e.kind == "elder" or e.kind == "trader" or e.kind == "refugee":
 		e.dir = Vector2i(0, 1)
 		return
 	if e.kind == "villager":
@@ -1058,9 +1178,148 @@ func _new_day() -> void:
 	if flags.get("chef_day", 0) and day >= flags.chef_day + 3 and not ents.any(func(e): return e.kind == "chef" and not e.dead):
 		ents.append(mk_mon("chef", 6 + day / 5, Vector2(30 * TS + 8, 44 * TS + 8), 1))
 		flags.chef_day = 0
+	_night_losses()
+	_refugee_event()
 	for i in 4:
 		fill_spawns(false)
 	write_save("auto")
+
+
+## Un habitant meurt pour de bon : une tombe reste au village, et tout le monde le ressent.
+func _villager_dies(e: Ent, msg: String) -> void:
+	e.dead = true
+	toast.emit(Lang.t(msg, [e.name]), "bad")
+	morale = maxf(0, morale - 20)
+	if e.spouse or spouse == e.name:
+		spouse = ""
+		morale = maxf(0, morale - 25)
+	for o in ents:
+		if o.kind == "villager" and o != e:
+			o.aff = maxi(0, o.aff - 5)
+	var gx := int(e.home.x / TS)
+	var gy := int(e.home.y / TS) + 1
+	for r in 4:
+		var done := false
+		for dx in range(-r, r + 1):
+			if can_place("grave", gx + dx, gy + r):
+				add_building("grave", gx + dx, gy + r)
+				done = true
+				break
+		if done:
+			break
+
+
+## La nuit, la brume emporte parfois quelqu'un si le village n'est pas protégé.
+func _night_losses() -> void:
+	if day < 3 or villagers() <= 3:
+		return
+	var prot := count_b("tower") + count_b("rampart") / 4.0 + count_b("lamp") / 2.0 + count_b("statue")
+	var chance := clampf(0.2 - 0.05 * prot, 0.0, 0.2)
+	if randf() >= chance:
+		return
+	var pool := ents.filter(func(x): return x.kind == "villager" and not x.spouse and not x.follow)
+	if pool.is_empty():
+		return
+	var v: Ent = pool.pick_random()
+	v.dead = true
+	morale = maxf(0, morale - 15)
+	toast.emit(Lang.t("vanished", [v.name]), "bad")
+
+
+## Au matin, un réfugié peut se présenter à l'entrée du village : l'aider, le chasser ou le dépouiller.
+func _refugee_event() -> void:
+	for e in ents:
+		if e.kind == "refugee" and not e.dead:
+			e.dead = true
+			toast.emit(Lang.t("refugee_left"), "")
+			return
+	if day < 2 or randf() > 0.35:
+		return
+	var free := Defs.VNAMES.filter(func(n): return not ents.any(func(x): return x.name == n))
+	if free.is_empty():
+		return
+	var e := add_npc("refugee", free.pick_random(), Vector2((Defs.VX - 7) * TS, (Defs.VY + 5) * TS))
+	e.vc = randi() % Defs.VCOL.size()
+	toast.emit(Lang.t("refugee_here"), "")
+
+
+func refugee_choice(e: Ent, c: String) -> String:
+	var line := ""
+	match c:
+		"help":
+			var food := "meat" if inv.get("meat", 0) else ("berry" if inv.get("berry", 0) >= 2 else ("bread" if inv.get("bread", 0) else ""))
+			if food == "":
+				return Lang.t("refugee_nofood")
+			take({food: 2 if food == "berry" else 1})
+			e.dead = true
+			var v := add_villager(e.pos)
+			if v:
+				v.name = e.name
+				v.aff = 35
+			morale = minf(100, morale + 10)
+			for o in ents:
+				if o.kind == "villager":
+					o.aff = mini(100, o.aff + 3)
+			line = Lang.t("refugee_thanks")
+			_check_town()
+		"chase":
+			e.dead = true
+			morale = maxf(0, morale - 5)
+			line = Lang.t("refugee_chased")
+		"rob":
+			e.dead = true
+			var g := randi_range(10, 20)
+			give("gold", g)
+			morale = maxf(0, morale - 15)
+			flags["cruel"] = flags.get("cruel", 0) + 1
+			for o in ents:
+				if o.kind == "villager":
+					o.aff = maxi(0, o.aff - 10)
+			line = Lang.t("refugee_robbed", [g])
+	return line
+
+
+## Fouiller une ruine : un peu de matériel… et parfois des bandits.
+func search_ruin(b: Bld) -> void:
+	var key := "%d,%d" % [b.tx, b.ty]
+	var looted: Dictionary = flags.get("ruins", {})
+	if looted.get(key, 0) == day:
+		toast.emit(Lang.t("ruin_empty"), "")
+		return
+	looted[key] = day
+	flags["ruins"] = looted
+	var got := []
+	for it in [["wood", 0.6, 3], ["stone", 0.4, 2], ["bandage", 0.25, 1], ["bread", 0.2, 1], ["gold", 0.3, 8]]:
+		if randf() < it[1]:
+			give(it[0], it[2])
+			got.append("+%d %s" % [it[2], Lang.nm(it[0])])
+	var lore: Array = Lang.t("ruin_finds")
+	toast.emit(lore.pick_random() + ("  " + ", ".join(got) if got else ""), "")
+	morale = maxf(0, morale - 2)
+	if randf() < 0.25:
+		for k in 2:
+			var m := mk_mon("bandit", maxi(2, lvl), b.center() + Vector2(randf_range(-50, 50), randf_range(30, 50)), -1)
+			m.prov = 10
+			ents.append(m)
+		toast.emit(Lang.t("ambush"), "bad")
+
+
+func _place_ruins() -> void:
+	var rs := RandomNumberGenerator.new()
+	rs.seed = seed_val + 77
+	var placed := 0
+	for tries in 400:
+		if placed >= 5:
+			break
+		var x := rs.randi_range(3, MW - 5)
+		var y := rs.randi_range(3, MH - 5)
+		if absi(x - Defs.VX) < 12 and absi(y - Defs.VY) < 10:
+			continue
+		if Defs.biome(x, y) == "crypt":
+			continue
+		if can_place("ruin", x, y) and can_place("ruin", x - 1, y - 1):
+			add_building("ruin", x, y)
+			placed += 1
 
 
 func quest_value(i: int) -> int:
@@ -1132,6 +1391,13 @@ func interact() -> void:
 			if b.k == "workshop":
 				panel_requested.emit("inv")
 				return
+			if b.k == "ruin":
+				search_ruin(b)
+				return
+			if b.k == "grave":
+				morale = minf(100, morale + 3)
+				toast.emit(Lang.t("grave_visit"), "")
+				return
 			if b.k == "tavern":
 				if gold >= 5:
 					gold -= 5
@@ -1141,9 +1407,15 @@ func interact() -> void:
 					toast.emit(Lang.t("tavern_poor"), "bad")
 				return
 			if b.k == "campfire":
-				if is_night():
-					time = 0.27
-					p_hp = max_hp()
+				if is_night() or fatigue >= 60:
+					if is_night():
+						time = 0.27
+					else:
+						time = minf(0.95, time + 0.15)
+					fatigue = 0.0
+					sprain_t = 0.0
+					hunger = maxf(0, hunger - 15)
+					p_hp = minf(max_hp(), p_hp + max_hp() * (0.6 if hunger > 20 else 0.2))
 					toast.emit(Lang.t("rest_done"), "good")
 				else:
 					toast.emit(Lang.t("rest_day"), "")
@@ -1177,12 +1449,43 @@ func float_t(p: Vector2, s: String, c: Color) -> void:
 	fx.append({"k": "t", "pos": p, "s": s, "c": c, "t": 1.0})
 
 
+## Gouttes de sang qui jaillissent puis restent un moment au sol.
+func blood(p: Vector2, n: int) -> void:
+	if not Settings.gore:
+		return
+	for i in n:
+		fx.append({"k": "p", "pos": p + Vector2(0, -6), "v": Vector2.from_angle(randf() * TAU) * randf_range(10, 35) + Vector2(0, -15), "c": Color("#8a1418"), "t": randf_range(0.25, 0.5)})
+	stains.append({"pos": p + Vector2(randf_range(-4, 4), randf_range(-2, 2)), "r": randf_range(1.5, 3.0) + n * 0.4, "t": 70.0, "s": randi()})
+	if stains.size() > 40:
+		stains.pop_front()
+	decals.queue_redraw()
+
+
+func _draw_decals() -> void:
+	for st in stains:
+		var a := clampf(st.t / 20.0, 0, 1) * 0.75
+		var c := Color(0.42, 0.04, 0.06, a)
+		var r: float = st.r
+		var rs := RandomNumberGenerator.new()
+		rs.seed = st.s
+		decals.draw_rect(Rect2((st.pos - Vector2(r, r * 0.5)).round(), Vector2(r * 2, r).round()), c)
+		for k in 3:
+			var o := Vector2(rs.randf_range(-r * 1.6, r * 1.6), rs.randf_range(-r * 0.8, r * 0.8))
+			decals.draw_rect(Rect2((st.pos + o).round(), Vector2(1, 1) * rs.randi_range(1, 2)), c.darkened(0.2))
+
+
 func burst(p: Vector2, c: Color, n: int) -> void:
 	for i in n:
 		fx.append({"k": "p", "pos": p, "v": Vector2.from_angle(randf() * TAU) * randf_range(15, 50) + Vector2(0, -20), "c": c, "t": randf_range(0.3, 0.6)})
 
 
 func _update_fx(dt: float) -> void:
+	if not stains.is_empty():
+		for st in stains:
+			st.t -= dt
+		if stains[0].t <= 0:
+			stains = stains.filter(func(x): return x.t > 0)
+			decals.queue_redraw()
 	for f in fx:
 		f.t -= dt
 		if f.k == "t":
@@ -1246,7 +1549,7 @@ func _process(dt: float) -> void:
 	# Le soir passe par une teinte dorée avant le bleu de la nuit.
 	var t := dk / 0.74 * (1.0 if lit else 0.7)
 	if t < 0.35:
-		night.color = Color.WHITE.lerp(DUSK, t / 0.35)
+		night.color = day_tint().lerp(DUSK, t / 0.35)
 	else:
 		night.color = DUSK.lerp(Color(0.13, 0.17, 0.35), (t - 0.35) / 0.65)
 	p_light.visible = lit and mode == "play" and dk > 0.02
@@ -1260,6 +1563,14 @@ func _process(dt: float) -> void:
 		_refresh_cell(65, 10)
 	_sync_sprites()
 	overlay.queue_redraw()
+
+
+## Le jour est un peu gris ; il s'assombrit encore quand le moral s'effondre.
+func day_tint() -> Color:
+	var c := Color(0.95, 0.94, 0.9)
+	if mode == "play" and morale < 30:
+		c = c.lerp(Color(0.8, 0.8, 0.84), (30 - morale) / 30.0)
+	return c
 
 
 func _update_camera() -> void:
@@ -1334,6 +1645,10 @@ func _setup_layers() -> void:
 	ysort.add_child(p_spr)
 	p_mask = Art.sprite("mask_gob")
 	p_spr.add_child(p_mask)
+	decals = Node2D.new()
+	decals.z_index = -1
+	decals.draw.connect(_draw_decals)
+	add_child(decals)
 	overlay = Node2D.new()
 	overlay.z_index = 5
 	overlay.draw.connect(_draw_overlay)
@@ -1438,11 +1753,11 @@ func _refresh_cell(x: int, y: int) -> void:
 		var q := (v >> 4) % 100
 		match b:
 			"plain":
-				pr = "prop_tallgrass_0" if q < 9 else ("prop_bush_%d" % (v % 2) if q < 12 else ("prop_mushroom_0" if q < 13 else ("prop_pebbles_0" if q < 15 else "")))
+				pr = "prop_tallgrass_0" if q < 9 else ("prop_bush_%d" % (v % 2) if q < 12 else ("prop_mushroom_0" if q < 13 else ("prop_pebbles_0" if q < 15 else ("prop_mud_%d" % (v % 2) if q < 17 else ""))))
 			"forest":
 				pr = "prop_fern_0" if q < 12 else ("prop_tallgrass_1" if q < 20 else ("prop_mushroom_%d" % (v % 2) if q < 24 else ("prop_bush_0" if q < 27 else "")))
 			"marsh":
-				pr = "prop_reeds_0" if q < 12 else ("prop_tallgrass_2" if q < 22 else ("prop_mushroom_1" if q < 24 else ""))
+				pr = "prop_reeds_0" if q < 12 else ("prop_tallgrass_2" if q < 22 else ("prop_mushroom_1" if q < 24 else ("prop_mud_%d" % (v % 2) if q < 29 else "")))
 			"crypt":
 				pr = "prop_bones_0" if q < 6 else ("prop_crystal_0" if q < 9 else "")
 	elif t == T.WATER and _mask(x, y, WATERLIKE) == 15:
@@ -1463,7 +1778,38 @@ func _remove_dead() -> void:
 			ents.remove_at(i)
 
 
+## Portrait de dialogue d'un personnage, ou d'un nom de locuteur dans une scène.
+func portrait_key(e: Ent) -> String:
+	match e.kind:
+		"elder":
+			return "pt_elder"
+		"trader":
+			return "pt_trader"
+		"refugee":
+			return "pt_refugee"
+		"bandit":
+			return "pt_bandit"
+		"chef":
+			return "pt_chef"
+	return "pt_villager_%d" % (e.vc % 6)
+
+
+func speaker_portrait(nm: String) -> String:
+	if nm == Lang.t("elder"):
+		return "pt_elder"
+	if nm == "Mâchefer" or nm == "Clinker":
+		return "pt_chef"
+	if nm == "Voix dans la brume" or nm == "Voice in the mist" or nm.begins_with("Veilleur") or nm.begins_with("Watcher"):
+		return "pt_veilleur"
+	for e in ents:
+		if e.name == nm and (e.kind == "villager" or e.kind == "refugee"):
+			return portrait_key(e)
+	return ""
+
+
 func _ent_sprite(e: Ent) -> String:
+	if e.kind == "refugee":
+		return "refugee"
 	if e.kind == "villager":
 		return "villager_%d" % e.vc
 	return e.kind
@@ -1631,7 +1977,7 @@ func serialize() -> Dictionary:
 	return {
 		"v": 1, "at": Time.get_unix_time_from_system(), "seed": seed_val, "map": Marshalls.raw_to_base64(map),
 		"day": day, "time": time, "quest": quest, "qbase": qbase, "stats": stats, "flags": flags, "chest": chest_open,
-		"player": {"x": pp.x, "y": pp.y, "hp": p_hp, "lvl": lvl, "xp": xp, "gold": gold, "inv": inv, "mask": mask, "sword": sword, "armor": armor, "relic": relic, "spouse": spouse},
+		"player": {"x": pp.x, "y": pp.y, "hp": p_hp, "lvl": lvl, "xp": xp, "gold": gold, "inv": inv, "mask": mask, "sword": sword, "armor": armor, "relic": relic, "spouse": spouse, "hunger": hunger, "fatigue": fatigue, "morale": morale},
 		"buildings": buildings.map(func(b): return [b.k, b.tx, b.ty]),
 		"npcs": npcs, "allies": allies,
 		"chef_alive": ents.any(func(e): return e.kind == "chef" and not e.dead),
@@ -1681,6 +2027,9 @@ func load_save(slot: String) -> bool:
 	armor = p.armor
 	relic = p.relic
 	spouse = p.spouse
+	hunger = float(p.get("hunger", 100.0))
+	fatigue = float(p.get("fatigue", 0.0))
+	morale = float(p.get("morale", 60.0))
 	for b in d.buildings:
 		add_building(b[0], int(b[1]), int(b[2]))
 	for n in d.npcs:

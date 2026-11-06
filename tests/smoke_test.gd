@@ -80,4 +80,36 @@ func _process(dt):
 			print("scene ", sc[0], " ", ok, " -> ", not w.scene_on)
 		print("echoes ", w.flags.get("echoes"), " date ", w.flags.get("date_" + v.name, false))
 		ui.open_journal(); ui.close_panel()
+		# Survie et monde cruel : faim, blessures, ruines, réfugiés, morts définitives.
+		print("ruins ", w.buildings.filter(func(b): return b.k == "ruin").size())
+		w.hunger = 50.0; w.inv["bread"] = 1; w.heal_item("bread")
+		print("hunger after bread ", w.hunger)
+		w.bleed_t = 10.0; w.inv["bandage"] = 1; w.heal_item("bandage")
+		print("bleed after bandage ", w.bleed_t)
+		w.hunger = 0.0; var hp0: float = w.p_hp; w._update_survival(1.0)
+		print("starving hurts ", w.p_hp < hp0)
+		w.hunger = 80.0
+		for b in w.buildings:
+			if b.k == "ruin": w.search_ruin(b); w.search_ruin(b); break
+		print("ruins searched ", w.flags.get("ruins", {}).size())
+		w.day = 5
+		for t in 20:
+			w._refugee_event()
+			if w.ents.any(func(e): return e.kind == "refugee" and not e.dead): break
+		var rf = null
+		for e in w.ents:
+			if e.kind == "refugee" and not e.dead: rf = e
+		if rf:
+			ui.open_dialog(rf); w.inv["bread"] = 2
+			var n0: int = w.villagers()
+			w.refugee_choice(rf, "help")
+			print("refugee helped ", w.villagers() - n0)
+		var vv = null
+		for e in w.ents:
+			if e.kind == "villager" and not e.dead: vv = e; break
+		var m0: float = w.morale
+		var graves0: int = w.buildings.filter(func(b): return b.k == "grave").size()
+		w._villager_dies(vv, "died_villager")
+		print("villager death morale ", w.morale < m0, " grave ", w.buildings.filter(func(b): return b.k == "grave").size() - graves0)
+		ui.close_panel()
 		quit()

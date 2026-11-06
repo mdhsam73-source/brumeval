@@ -29,6 +29,8 @@ var h_gold: Label
 var h_state: Label
 var h_quest: Label
 var h_hint: Label
+var h_surv: Array = []
+var h_wound: Label
 var hud_t := 0.0
 var touch_root: Control
 var vignette: TextureRect
@@ -116,6 +118,9 @@ func play_scene(id: String, arg: Variant = null) -> void:
 		"date": steps = Scenes.date(world, arg)
 		"wedding": steps = Scenes.wedding(world, arg)
 	if not steps.is_empty():
+		# Les bons moments remontent le moral (la fête, un rendez-vous, un mariage).
+		var lift: int = {"festival": 20, "date": 15, "wedding": 30, "chef_down": 10}.get(id, 0)
+		world.morale = minf(100.0, world.morale + lift)
 		cutscene.play(steps)
 
 
@@ -382,6 +387,28 @@ func _build_hud() -> Control:
 	h_xp.show_percentage = false
 	h_xp.add_theme_stylebox_override("fill", _sbox("bar_xp", 1, [0, 0, 0, 0]))
 	lv.add_child(h_xp)
+	# Survie : faim, énergie (inverse de la fatigue), moral.
+	var sg := GridContainer.new()
+	sg.columns = 3
+	sg.add_theme_constant_override("h_separation", 2)
+	sg.add_theme_constant_override("v_separation", 0)
+	for k in ["hunger", "energy", "morale"]:
+		var l := _label(Lang.t(k), 7, C_DIM)
+		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		l.custom_minimum_size = Vector2(39, 0)
+		sg.add_child(l)
+	for col in [Color("#e8a040"), Color("#6ac0f0"), Color("#c890ff")]:
+		var b := ProgressBar.new()
+		b.custom_minimum_size = Vector2(39, 5)
+		b.show_percentage = false
+		var st := _sbox("bar_hp", 1, [0, 0, 0, 0])
+		st.modulate_color = col
+		b.add_theme_stylebox_override("fill", st)
+		sg.add_child(b)
+		h_surv.append(b)
+	lv.add_child(sg)
+	h_wound = _label("", 7, Color("#ff7a6a"))
+	lv.add_child(h_wound)
 	h_gold = _label("", 8)
 	lv.add_child(h_gold)
 	h_state = _label("", 7, C_MIST, true)
@@ -412,6 +439,22 @@ func _update_hud() -> void:
 	h_lv.text = Lang.t("lv", [w.lvl]) + "  ♥ %d/%d" % [ceili(w.body.hp if w.body else w.p_hp), int(w.body.maxhp if w.body else w.max_hp())] + (" · " + Lang.t("married", [w.spouse]) if w.spouse != "" else "")
 	h_hp.max_value = mh
 	h_hp.value = hp
+	h_surv[0].value = w.hunger
+	h_surv[1].value = 100 - w.fatigue
+	h_surv[2].value = w.morale
+	var wounds := []
+	if w.bleed_t > 0:
+		wounds.append(Lang.t("w_bleed"))
+	if w.sprain_t > 0:
+		wounds.append(Lang.t("w_sprain"))
+	if w.hunger <= 0:
+		wounds.append(Lang.t("w_starve"))
+	elif w.hunger < 25:
+		wounds.append(Lang.t("w_hungry"))
+	if w.fatigue >= 80:
+		wounds.append(Lang.t("w_tired"))
+	h_wound.text = " · ".join(wounds)
+	h_wound.visible = not wounds.is_empty()
 	h_xp.max_value = w.xp_need(w.lvl)
 	h_xp.value = w.xp
 	var m := int(fmod(w.time * 24.0, 24.0) * 60)
@@ -628,6 +671,11 @@ func open_settings() -> void:
 	sh.button_pressed = Settings.shake
 	sh.toggled.connect(func(on): Settings.shake = on; Settings.save_settings())
 	panel_box.add_child(sh)
+	var gore := CheckButton.new()
+	gore.text = Lang.t("gore")
+	gore.button_pressed = Settings.gore
+	gore.toggled.connect(func(on): Settings.gore = on; Settings.save_settings())
+	panel_box.add_child(gore)
 	var diff := OptionButton.new()
 	for k in ["easy", "normal", "hard"]:
 		diff.add_item(Lang.t(k))
@@ -698,7 +746,7 @@ func open_inventory() -> void:
 		panel_box.add_child(_label(Lang.t("nothing"), 8, C_DIM))
 	for k in w.inv.keys():
 		var btn: Button = null
-		if k == "potion" or k == "stew":
+		if k == "potion" or k == "stew" or k == "bandage" or Defs.FOOD.has(k):
 			btn = _button(Lang.t("use"), func(): w.heal_item(k); open_inventory())
 		elif Defs.MASKF.has(k):
 			if w.mask == k:
@@ -736,7 +784,7 @@ func open_inventory() -> void:
 				if r.get("once", false):
 					w.set(id, true)
 				else:
-					w.give(id)
+					w.give(id, r.get("n", 1))
 				show_toast(Lang.t("crafted", [Lang.nm(id)]), "good")
 			open_inventory(), dis)
 		panel_box.add_child(_row(Lang.nm(id), _cost(r.need), btn))
@@ -770,6 +818,8 @@ func open_build() -> void:
 	panel_box.add_child(_label(status, 8, C_BRASS, true))
 	for k in Defs.BLD:
 		var b: Dictionary = Defs.BLD[k]
+		if b.get("hidden", false):
+			continue
 		var need_lv: int = b.get("lv", 0)
 		var lock: bool = (b.has("tier") and Settings.tier < b.tier) or need_lv > tl
 		var title: String = Lang.nm(k) + ("  [%s]" % Lang.t("tier_names")[b.tier] if b.has("tier") else "")
@@ -804,6 +854,8 @@ func open_dialog(e, line: String = "") -> void:
 	var w = world
 	npc = e
 	var name_txt: String = Lang.t("elder") if e.kind == "elder" else (Lang.t("trader") if e.kind == "trader" else e.name)
+	if e.kind == "refugee":
+		name_txt = Lang.t("refugee") + " — " + e.name
 	_open("dialog", name_txt)
 	if e.kind == "villager":
 		panel_box.add_child(_label("%s  %d/100%s" % [_hearts(e.aff), e.aff, "  ♥" if e.spouse else ""], 8, Color("#d4483b")))
@@ -818,6 +870,12 @@ func open_dialog(e, line: String = "") -> void:
 		var q: Dictionary = w.quest_progress()
 		if not q.is_empty() and q.done:
 			acts.append(_button(Lang.t("claim"), func(): w.claim_quest(); open_dialog(e)))
+	elif e.kind == "refugee":
+		if say == "":
+			say = Lang.t("refugee_plea")
+		for c in ([] if e.dead else ["help", "chase", "rob"]):
+			var ch: String = c
+			acts.append(_button(Lang.t("refugee_" + ch), func(): open_dialog(e, w.refugee_choice(e, ch))))
 	elif e.kind == "trader":
 		if say == "":
 			say = Lang.t("trader_hi")
@@ -871,8 +929,24 @@ func open_dialog(e, line: String = "") -> void:
 		if e.talks >= 3 and line == "":
 			say = Lang.t("tired_talk")
 	var sayl := _label(say, 8, C_INK, true)
-	sayl.custom_minimum_size = Vector2(260, 0)
-	panel_box.add_child(sayl)
+	sayl.custom_minimum_size = Vector2(206, 0)
+	sayl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	var face := TextureRect.new()
+	var ex := "n"
+	if w.body and e.kind != "elder":
+		ex = "p"
+	elif e.kind == "refugee":
+		ex = "s"
+	elif e.kind == "villager":
+		ex = "h" if e.aff >= 60 else ("s" if e.aff < 10 else "n")
+	face.texture = Art.portrait(w.portrait_key(e), ex)
+	face.stretch_mode = TextureRect.STRETCH_KEEP
+	face.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	row.add_child(face)
+	row.add_child(sayl)
+	panel_box.add_child(row)
 	for b in acts:
 		panel_box.add_child(b)
 	panel_box.add_child(_button(Lang.t("bye"), close_panel))

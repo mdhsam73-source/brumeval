@@ -22,6 +22,7 @@ var shown := 0.0
 var title := ""
 var title_a := 0.0
 var on_end := Callable()
+var face: Texture2D = null
 
 
 func _ready() -> void:
@@ -58,6 +59,8 @@ func _next() -> void:
 		speaker = s.say
 		text = s.text
 		shown = 0.0
+		var pk: String = world.speaker_portrait(speaker)
+		face = Art.portrait(pk, s.get("ex", _mood(pk, text))) if pk != "" else null
 	elif s.has("cam"):
 		cam_from = world.scene_cam
 	elif s.has("fade"):
@@ -155,6 +158,17 @@ func _process(dt: float) -> void:
 			_next()
 
 
+## Expression devinée d'après la réplique quand l'étape n'en donne pas.
+func _mood(pk: String, txt: String) -> String:
+	if pk == "pt_chef":
+		return "a"
+	if txt.contains("…"):
+		return "s"
+	if txt.contains("!"):
+		return "h"
+	return "n"
+
+
 func _ease(x: float) -> float:
 	x = clampf(x, 0, 1)
 	return x * x * (3 - 2 * x)
@@ -204,10 +218,14 @@ func _draw() -> void:
 		draw_rect(r, Color(0.09, 0.06, 0.07, 0.94))
 		draw_rect(r, Color("#e0a848"), false, 1.0)
 		draw_rect(r.grow(-2), Color("#8a5a20"), false, 1.0)
+		var tx := 8.0
+		if face and speaker != "":
+			draw_texture(face, r.position + Vector2(7, 7))
+			tx = 62.0
 		if speaker != "":
-			draw_string(FONT, r.position + Vector2(8, 14), speaker, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#ffd76a"))
+			draw_string(FONT, r.position + Vector2(tx, 14), speaker, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#ffd76a"))
 		var vis := text.substr(0, int(shown))
-		draw_multiline_string(FONT, r.position + Vector2(8, 28 if speaker != "" else 16), vis, HORIZONTAL_ALIGNMENT_LEFT, bw - 16, 12, 3, Color("#efe4cc"))
+		draw_multiline_string(FONT, r.position + Vector2(tx, 28 if speaker != "" else 16), vis, HORIZONTAL_ALIGNMENT_LEFT, bw - tx - 8, 12, 3, Color("#efe4cc"))
 		if shown >= text.length() and int(t * 2.5) % 2 == 0:
 			var tip := r.end - Vector2(10, 7)
 			draw_colored_polygon(PackedVector2Array([tip + Vector2(-4, -3), tip + Vector2(4, -3), tip + Vector2(0, 2)]), Color("#e0a848"))
