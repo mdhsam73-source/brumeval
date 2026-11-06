@@ -111,5 +111,9 @@ func _process(dt):
 		var graves0: int = w.buildings.filter(func(b): return b.k == "grave").size()
 		w._villager_dies(vv, "died_villager")
 		print("villager death morale ", w.morale < m0, " grave ", w.buildings.filter(func(b): return b.k == "grave").size() - graves0)
-		ui.close_panel()
+		# Sac en grille avec icônes, héros en pied, journal des événements.
+		w.inv["bandage"] = 1; w.bleed_t = 5.0
+		ui.open_inventory(); ui._use_item("bandage")
+		print("stand ", w.stand_state(), " icon ", Art.icon("wood") != null, " events ", ui.events.size() > 0)
+		ui.open_events(); ui.close_panel()
 		quit()

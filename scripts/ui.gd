@@ -16,6 +16,7 @@ var theme_ui := Theme.new()
 var title_root: Control
 var hud_root: Control
 var cutscene: Control
+var events: Array = []
 var hurt_flash: ColorRect
 var panel_root: Control
 var panel_box: VBoxContainer
@@ -245,6 +246,12 @@ func _label(text: String, size: int = 9, col: Color = C_INK, wrap := false) -> L
 	return l
 
 
+func _icon_btn(k: String, text: String, cb: Callable, disabled := false) -> Button:
+	var b := _button(text, cb, disabled)
+	b.icon = Art.icon(k)
+	return b
+
+
 func _button(text: String, cb: Callable, disabled := false) -> Button:
 	var b := Button.new()
 	b.text = text
@@ -442,19 +449,8 @@ func _update_hud() -> void:
 	h_surv[0].value = w.hunger
 	h_surv[1].value = 100 - w.fatigue
 	h_surv[2].value = w.morale
-	var wounds := []
-	if w.bleed_t > 0:
-		wounds.append(Lang.t("w_bleed"))
-	if w.sprain_t > 0:
-		wounds.append(Lang.t("w_sprain"))
-	if w.hunger <= 0:
-		wounds.append(Lang.t("w_starve"))
-	elif w.hunger < 25:
-		wounds.append(Lang.t("w_hungry"))
-	if w.fatigue >= 80:
-		wounds.append(Lang.t("w_tired"))
-	h_wound.text = " · ".join(wounds)
-	h_wound.visible = not wounds.is_empty()
+	h_wound.text = _wounds_text()
+	h_wound.visible = h_wound.text != ""
 	h_xp.max_value = w.xp_need(w.lvl)
 	h_xp.value = w.xp
 	var m := int(fmod(w.time * 24.0, 24.0) * 60)
@@ -561,8 +557,14 @@ func _back_button() -> Button:
 	return _button(Lang.t("close"), close_panel)
 
 
-func _row(text: String, sub: String, btn: Button) -> Control:
+func _row(text: String, sub: String, btn: Button, ic: Texture2D = null) -> Control:
 	var h := HBoxContainer.new()
+	if ic:
+		var t := TextureRect.new()
+		t.texture = ic
+		t.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
+		t.custom_minimum_size = Vector2(18, 18)
+		h.add_child(t)
 	var v := VBoxContainer.new()
 	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	v.add_child(_label(text, 8, C_INK, true))
@@ -736,24 +738,85 @@ func open_patreon() -> void:
 	panel_box.add_child(_back_button())
 
 
+## Utiliser, équiper ou regarder un objet du sac.
+func _use_item(k: String) -> void:
+	var w = world
+	if k == "potion" or k == "stew" or k == "bandage" or Defs.FOOD.has(k):
+		w.heal_item(k)
+	elif Defs.MASKF.has(k):
+		w.mask = "" if w.mask == k else k
+	else:
+		show_toast(Lang.nm(k) + " — " + Lang.t("inv_material"), "")
+	open_inventory()
+
+
+## Journal des événements : ce qui est arrivé récemment, le plus récent en haut.
+func open_events() -> void:
+	_open("events", Lang.t("events"))
+	if events.is_empty():
+		panel_box.add_child(_label(Lang.t("nothing"), 8, C_DIM))
+	for i in range(events.size() - 1, -1, -1):
+		var ev: Array = events[i]
+		var col := C_INK
+		if ev[2] == "bad":
+			col = Color("#e88070")
+		elif ev[2] == "good":
+			col = Color("#a8d878")
+		var l := _label("%s — %s" % [ev[0], ev[1]], 7, col, true)
+		l.custom_minimum_size = Vector2(280, 0)
+		panel_box.add_child(l)
+	panel_box.add_child(_button(Lang.t("back"), open_inventory))
+
+
 func open_inventory() -> void:
 	var w = world
 	if w.body:
 		show_toast(Lang.t("cant_here"), "")
 		return
 	_open("inv", Lang.t("inv"))
+	# En haut : le héros en pied (son état se voit : sale, blessé, bandé) et ses besoins, puis le sac en grille.
+	var top := HBoxContainer.new()
+	top.add_theme_constant_override("separation", 8)
+	var stand := TextureRect.new()
+	stand.texture = Art.frame_texture("hero_stand", w.stand_state())
+	stand.stretch_mode = TextureRect.STRETCH_KEEP
+	stand.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	top.add_child(stand)
+	var right := VBoxContainer.new()
+	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	right.add_theme_constant_override("separation", 2)
+	right.add_child(_label("%s %d/%d · %s %d · %s %d" % [Lang.t("hp"), ceili(w.p_hp), int(w.max_hp()), "ATQ", w.atk_p(), "DEF", w.def_p()], 8, C_INK))
+	right.add_child(_label("%s %d · %s %d · %s %d" % [Lang.t("hunger"), int(w.hunger), Lang.t("energy"), int(100 - w.fatigue), Lang.t("morale"), int(w.morale)], 7, C_DIM))
+	var st: String = _wounds_text()
+	if st != "":
+		right.add_child(_label(st, 7, Color("#e06050"), true))
+	var grid := GridContainer.new()
+	grid.columns = 6
+	grid.add_theme_constant_override("h_separation", 2)
+	grid.add_theme_constant_override("v_separation", 2)
 	if w.inv.is_empty():
-		panel_box.add_child(_label(Lang.t("nothing"), 8, C_DIM))
+		right.add_child(_label(Lang.t("nothing"), 8, C_DIM))
 	for k in w.inv.keys():
-		var btn: Button = null
-		if k == "potion" or k == "stew" or k == "bandage" or Defs.FOOD.has(k):
-			btn = _button(Lang.t("use"), func(): w.heal_item(k); open_inventory())
-		elif Defs.MASKF.has(k):
-			if w.mask == k:
-				btn = _button(Lang.t("unequip"), func(): w.mask = ""; open_inventory())
-			else:
-				btn = _button(Lang.t("equip"), func(): w.mask = k; open_inventory())
-		panel_box.add_child(_row("%s ×%d" % [Lang.nm(k), w.inv[k]], "", btn))
+		var kk: String = k
+		var slot := _button("%d" % w.inv[k], func(): _use_item(kk))
+		slot.icon = Art.icon(kk)
+		slot.tooltip_text = Lang.nm(kk)
+		slot.custom_minimum_size = Vector2(40, 24)
+		slot.expand_icon = false
+		for stn in ["normal", "hover", "pressed", "focus"]:
+			var sb := StyleBoxFlat.new()
+			sb.bg_color = Color("#1c1416") if stn != "pressed" else Color("#2e2024")
+			sb.border_color = C_BRASS if stn in ["hover", "focus"] else C_BRASS_DK
+			sb.set_border_width_all(1)
+			sb.set_content_margin_all(3)
+			slot.add_theme_stylebox_override(stn, sb)
+		if w.mask == kk:
+			slot.modulate = Color(1.0, 0.9, 0.5)
+		grid.add_child(slot)
+	right.add_child(grid)
+	right.add_child(_label(Lang.t("inv_hint"), 7, C_DIM, true))
+	top.add_child(right)
+	panel_box.add_child(top)
 	var eq := []
 	if w.sword:
 		eq.append(Lang.nm("sword"))
@@ -765,6 +828,7 @@ func open_inventory() -> void:
 		eq.append(Lang.nm(w.mask))
 	if not w.flags.get("echoes", []).is_empty():
 		panel_box.add_child(_button(Lang.t("journal") + " (%d/4)" % w.flags.echoes.size(), open_journal))
+	panel_box.add_child(_button(Lang.t("events") + " (%d)" % events.size(), open_events))
 	panel_box.add_child(_label(Lang.t("equipment"), 9, C_MIST))
 	panel_box.add_child(_label("%s · ATQ %d · DEF %d" % [" · ".join(eq) if eq else "—", w.atk_p(), w.def_p()], 7, C_DIM, true))
 	panel_box.add_child(_label(Lang.t("crafting"), 9, C_MIST))
@@ -787,7 +851,7 @@ func open_inventory() -> void:
 					w.give(id, r.get("n", 1))
 				show_toast(Lang.t("crafted", [Lang.nm(id)]), "good")
 			open_inventory(), dis)
-		panel_box.add_child(_row(Lang.nm(id), _cost(r.need), btn))
+		panel_box.add_child(_row(Lang.nm(id), _cost(r.need), btn, Art.icon(id)))
 	panel_box.add_child(_button(Lang.t("close"), close_panel))
 
 
@@ -887,10 +951,12 @@ func open_dialog(e, line: String = "") -> void:
 		for k in Defs.SELL:
 			var n: int = w.inv.get(k, 0)
 			if n:
-				acts.append(_button("%s %d %s (+%d)" % [Lang.t("sell"), n, Lang.nm(k), n * w.sell_price(k)], func():
+				var sb := _button("%s %d %s (+%d)" % [Lang.t("sell"), n, Lang.nm(k), n * w.sell_price(k)], func():
 					w.take({k: n})
 					w.gold += n * w.sell_price(k)
-					open_dialog(e)))
+					open_dialog(e))
+				sb.icon = Art.icon(k)
+				acts.append(sb)
 	elif not w.body:
 		if say == "":
 			var tier := "high" if e.aff >= 60 else ("mid" if e.aff >= 25 else "low")
@@ -959,7 +1025,7 @@ func _open_gift(e) -> void:
 	for k in Defs.GIFTS:
 		if w.inv.get(k, 0):
 			any = true
-			panel_box.add_child(_button("%s ×%d (+%d)" % [Lang.nm(k), w.inv[k], Defs.GIFTS[k]], func():
+			panel_box.add_child(_icon_btn(k, "%s ×%d (+%d)" % [Lang.nm(k), w.inv[k], Defs.GIFTS[k]], func():
 				w.take({k: 1})
 				e.aff = mini(100, e.aff + Defs.GIFTS[k])
 				open_dialog(e, Lang.t("gift_thanks"))))
@@ -972,6 +1038,12 @@ func _open_gift(e) -> void:
 # ---------------------------------------------------------------- Messages
 
 func show_toast(text: String, kind: String) -> void:
+	# Chaque message est aussi gardé dans le journal des événements (40 derniers).
+	var w = world
+	var mins := int(w.time * 24 * 60)
+	events.append([Lang.t("day", [w.day, "%02d:%02d" % [mins / 60, mins % 60]]), text, kind])
+	if events.size() > 40:
+		events.pop_front()
 	var p := PanelContainer.new()
 	var border := C_BRASS
 	if kind == "good":
@@ -989,3 +1061,19 @@ func show_toast(text: String, kind: String) -> void:
 		toasts.get_child(0).free()
 	# Connexion directe : elle disparaît toute seule si le message a déjà été retiré.
 	get_tree().create_timer(3.2).timeout.connect(p.queue_free)
+
+
+func _wounds_text() -> String:
+	var w = world
+	var wounds := []
+	if w.bleed_t > 0:
+		wounds.append(Lang.t("w_bleed"))
+	if w.sprain_t > 0:
+		wounds.append(Lang.t("w_sprain"))
+	if w.hunger <= 0:
+		wounds.append(Lang.t("w_starve"))
+	elif w.hunger < 25:
+		wounds.append(Lang.t("w_hungry"))
+	if w.fatigue >= 80:
+		wounds.append(Lang.t("w_tired"))
+	return " · ".join(wounds)
