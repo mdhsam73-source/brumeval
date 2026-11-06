@@ -9,6 +9,7 @@ RPG pixel vu de dessus : masques, transfert d'âme, village à bâtir, options s
 - Bandits, ruines à fouiller (butin, embuscades), réfugiés à aider, chasser ou dépouiller.
 - Les villageois meurent pour de bon (une tombe est creusée) et la brume peut en emporter la nuit si le village est mal protégé.
 - Portraits de dialogue avec expressions, couleurs plus ternes, boue et sang (désactivable dans les réglages).
+- Sac en grille avec une icône par objet, héros en pied qui montre son état (sale, blessé, bandé), journal des événements, nuits plus noires (0.6.1).
 
 ## Lancer le jeu
 

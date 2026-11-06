@@ -82,6 +82,13 @@ static func portrait(key: String, ex := "n") -> AtlasTexture:
 	return frame_texture(key, maxi(0, "nhspa".find(ex)))
 
 
+## Icône 16×16 d'un objet (null si l'objet n'en a pas).
+static func icon(k: String) -> AtlasTexture:
+	if not AtlasData.SPRITES.has("ic_" + k):
+		return null
+	return frame_texture("ic_" + k, 0)
+
+
 static func light_texture() -> GradientTexture2D:
 	if _cache.has("light"):
 		return _cache["light"]

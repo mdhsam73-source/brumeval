@@ -85,6 +85,7 @@ var fatigue := 0.0
 var morale := 60.0
 var bleed_t := 0.0
 var sprain_t := 0.0
+var bandage_t := 0.0
 var _starve_msg := 0.0
 var slow_t := 0.0
 var _scene_check := 0.0
@@ -605,6 +606,7 @@ func heal_item(k: String) -> void:
 	take({k: 1})
 	if k == "bandage":
 		bleed_t = 0.0
+		bandage_t = 120.0
 		p_hp = minf(max_hp(), p_hp + 8)
 		toast.emit(Lang.t("bandaged"), "good")
 		return
@@ -660,6 +662,7 @@ func _update_survival(dt: float) -> void:
 	hunger = maxf(0, hunger - Defs.HUNGER_RATE * dt * (1.4 if p_moving else 1.0))
 	fatigue = minf(100, fatigue + Defs.FATIGUE_RATE * dt)
 	sprain_t = maxf(0, sprain_t - dt)
+	bandage_t = maxf(0, bandage_t - dt)
 	if bleed_t > 0:
 		bleed_t -= dt
 		p_hp -= 1.0 * dt
@@ -1551,7 +1554,7 @@ func _process(dt: float) -> void:
 	if t < 0.35:
 		night.color = day_tint().lerp(DUSK, t / 0.35)
 	else:
-		night.color = DUSK.lerp(Color(0.13, 0.17, 0.35), (t - 0.35) / 0.65)
+		night.color = DUSK.lerp(Color(0.09, 0.11, 0.25), (t - 0.35) / 0.65)
 	p_light.visible = lit and mode == "play" and dk > 0.02
 	p_light.position = p_pos + Vector2(0, -8)
 	p_light.texture_scale = (80.0 if Settings.tier >= 3 else 48.0) / 32.0
@@ -1779,6 +1782,18 @@ func _remove_dead() -> void:
 
 
 ## Portrait de dialogue d'un personnage, ou d'un nom de locuteur dans une scène.
+## Variante de l'image du héros en pied : 1 sale, 2 blessé, 4 bandé.
+func stand_state() -> int:
+	var st := 0
+	if hunger < 35 or fatigue >= 70 or stains.size() > 20:
+		st |= 1
+	if bleed_t > 0 or p_hp < max_hp() * 0.4:
+		st |= 2
+	if bandage_t > 0:
+		st |= 4
+	return st
+
+
 func portrait_key(e: Ent) -> String:
 	match e.kind:
 		"elder":

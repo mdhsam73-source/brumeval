@@ -1901,6 +1901,236 @@ def portraits(people):
     return out
 
 
+# ------------------------------------------------------------------ icônes d'objets
+
+ICONS = ("wood", "stone", "berry", "meat", "crystal", "ear", "fang", "hide", "ecto", "potion", "stew",
+         "bandage", "bread", "ring", "sword", "armor", "gold", "relic",
+         "mask_gob", "mask_wolf", "mask_wisp", "mask_spectre")
+
+
+def item_icon(k):
+    """Icône 16×16 d'un objet, éclairée en haut à gauche, pour le sac et les menus."""
+    s = Spr(16, 16)
+    if k == "wood":
+        for (y, c) in ((9, "#8a5a34"), (5, "#a06a3c")):
+            s.r(2, y, 12, 4, rgb(c))
+            s.r(2, y, 12, 1, light(rgb(c), 0.25))
+            s.ellipse(13.5, y + 1.5, 1.6, 2, rgb("#d8b080"))
+            s.p(13, y + 1, rgb("#8a5a34"))
+    elif k == "stone":
+        s.ellipse(8, 9, 6, 4.5, rgb("#8a8880"))
+        s.ellipse(6.5, 7.5, 3.5, 2.5, rgb("#b0aea4"))
+        s.ellipse(10, 11, 3, 1.6, rgb("#64625c"))
+        s.p(9, 8, rgb("#64625c"))
+    elif k == "berry":
+        s.r(7, 2, 1, 3, rgb("#4a7a2a"))
+        s.r(8, 3, 3, 1, rgb("#6aa040"))
+        for (x, y) in ((5, 8), (10, 8), (7.5, 11.5), (8, 6.5)):
+            s.ellipse(x, y, 2.6, 2.6, rgb("#3a5ac0"))
+            s.p(int(x) - 1, int(y) - 1, rgb("#a8c0ff"))
+    elif k == "meat":
+        s.r(10, 3, 2, 6, rgb("#efe4cc"))
+        s.ellipse(11, 2.5, 2, 1.5, rgb("#efe4cc"))
+        s.ellipse(7, 10, 5.5, 4.5, rgb("#b84a3a"))
+        s.ellipse(6, 9, 3, 2.4, rgb("#d86a5a"))
+        s.ellipse(7, 10, 2, 1.5, rgb("#f0a090"))
+    elif k == "crystal":
+        for i in range(12):
+            hw = min(i, 11 - i) * 0.5 + 0.5
+            s.r(int(8 - hw), 2 + i, max(1, int(hw * 2)), 1, rgb("#6ac8e8"))
+            s.r(int(8 - hw), 2 + i, max(1, int(hw)), 1, rgb("#b8f0ff"))
+        s.p(7, 5, rgb("#ffffff"))
+    elif k == "ear":
+        for i in range(10):
+            s.r(3 + i, 6 + i // 3, 1, 6 - i // 2, rgb("#5a8a2e"))
+        s.r(4, 8, 6, 1, rgb("#3a6a1e"))
+        s.p(12, 9, rgb("#a8282a"))
+    elif k == "fang":
+        for i in range(10):
+            w_ = max(1, 4 - i // 3)
+            s.r(6 + i // 4, 3 + i, w_, 1, rgb("#efe4cc"))
+        s.r(6, 3, 1, 8, rgb("#fffaf0"))
+    elif k == "hide":
+        s.ellipse(8, 8, 6, 5.5, rgb("#8a6040"))
+        s.ellipse(7, 7, 4, 3.5, rgb("#a87a50"))
+        for (x, y) in ((2, 4), (13, 4), (2, 12), (13, 12)):
+            s.r(x, y, 2, 2, rgb("#6a4428"))
+    elif k == "ecto":
+        s.ellipse(8, 9, 5, 5, (150, 220, 255, 170))
+        s.ellipse(7, 8, 2.5, 2.5, (220, 250, 255, 220))
+        s.p(6, 7, rgb("#ffffff"))
+    elif k in ("potion",):
+        s.r(7, 2, 3, 3, rgb("#9a7448"))
+        s.r(6, 5, 5, 2, rgb("#c8d8e0"))
+        s.ellipse(8.5, 10.5, 4.5, 4.5, rgb("#c8d8e0"))
+        s.ellipse(8.5, 11, 3.6, 3.4, rgb("#d84050"))
+        s.p(6, 9, rgb("#ffffff"))
+    elif k == "stew":
+        s.ellipse(8, 10, 6.5, 3.5, rgb("#6a4a2a"))
+        s.ellipse(8, 8.5, 5.5, 2, rgb("#b8702a"))
+        s.p(6, 8, rgb("#e8a040"))
+        s.p(10, 9, rgb("#7aa040"))
+        for (x, y) in ((6, 4), (9, 3), (8, 5)):
+            s.p(x, y, (230, 230, 230, 140))
+    elif k == "bandage":
+        s.ellipse(8, 8, 5.5, 5.5, rgb("#e8e0d0"))
+        s.ellipse(8, 8, 2, 2, rgb("#b8b0a0"))
+        for y in range(4, 13, 2):
+            s.r(3, y, 10, 1, rgb("#d0c8b8"))
+        s.r(12, 9, 3, 2, rgb("#e8e0d0"))
+    elif k == "bread":
+        s.ellipse(8, 9, 6.5, 4, rgb("#b87a3a"))
+        s.ellipse(7, 7.5, 5, 2.5, rgb("#d89a50"))
+        for x in (5, 8, 11):
+            s.r(x, 7, 1, 2, rgb("#8a5420"))
+    elif k == "ring":
+        s.ellipse(8, 9, 5, 4.5, rgb("#e8c040"))
+        s.ellipse(8, 9, 3, 2.5, CLEAR)
+        for y in range(16):
+            for x in range(16):
+                if ((x - 8) ** 2 / 9 + (y - 9) ** 2 / 6.25) < 1:
+                    s.px[x, y] = CLEAR
+        s.ellipse(8, 4, 2, 2, rgb("#6ac8e8"))
+        s.p(7, 3, rgb("#ffffff"))
+    elif k == "sword":
+        for i in range(10):
+            s.r(4 + i, 11 - i, 2, 1, rgb("#c8ccd4"))
+            s.p(4 + i, 11 - i, rgb("#f0f4fa"))
+        s.r(2, 11, 5, 1, rgb("#8a6a2a"))
+        s.r(4, 9, 1, 5, rgb("#8a6a2a"))
+        s.r(2, 13, 2, 2, rgb("#5a3a1a"))
+    elif k == "armor":
+        s.r(3, 3, 10, 10, rgb("#8a5a34"))
+        s.r(3, 3, 3, 4, rgb("#6a4428"))
+        s.r(10, 3, 3, 4, rgb("#6a4428"))
+        s.r(6, 3, 4, 2, CLEAR)
+        s.r(4, 7, 8, 1, rgb("#a87a50"))
+        s.r(7, 8, 2, 5, rgb("#c8a060"))
+    elif k == "gold":
+        for (x, y) in ((5, 10), (10, 10), (7.5, 6.5)):
+            s.ellipse(x, y, 3.5, 2.5, rgb("#c89a30"))
+            s.ellipse(x, y - 0.5, 2.8, 1.8, rgb("#f0d050"))
+            s.p(int(x), int(y) - 1, rgb("#fff4b0"))
+    elif k == "relic":
+        s.ellipse(8, 8, 5, 6, rgb("#5a4a7a"))
+        s.ellipse(8, 8, 3, 4, rgb("#9a7ad8"))
+        s.ellipse(8, 8, 1.5, 2, rgb("#e8d8ff"))
+    elif k.startswith("mask_"):
+        col = {"mask_gob": "#5a8a2e", "mask_wolf": "#8a8a90", "mask_wisp": "#6ab8e8", "mask_spectre": "#c8c8e0"}[k]
+        c = ramp(col)
+        s.ellipse(8, 8, 6, 6.5, c[1])
+        s.ellipse(6.5, 6, 3, 3, c[0])
+        s.r(4, 7, 3, 2, rgb("#141010"))
+        s.r(9, 7, 3, 2, rgb("#141010"))
+        if k == "mask_gob":
+            s.r(1, 5, 3, 2, c[1])
+            s.r(12, 5, 3, 2, c[1])
+        if k == "mask_wolf":
+            s.r(3, 1, 2, 3, c[1])
+            s.r(11, 1, 2, 3, c[1])
+            s.r(6, 11, 4, 2, rgb("#2a2a30"))
+        if k == "mask_wisp":
+            s.p(7, 7, rgb("#ffffff"))
+            s.p(10, 7, rgb("#ffffff"))
+    s.outline(0.7)
+    return s
+
+
+def hero_stand(state):
+    """Héros en pied 56×104 pour l'écran du sac. state : bits 1 sale, 2 blessé (sang), 4 bandé."""
+    s = Spr(56, 104)
+    skin = ramp("#ecbc92")
+    hair = ramp("#3a2418")
+    tun = ramp("#3d5c8a")
+    pants = ramp("#4a3a2e")
+    cape = ramp("#6a4a30")
+    # cape derrière
+    s.r(13, 30, 30, 50, cape[2])
+    for i in range(6):
+        s.r(13 + i * 5, 78 + (i % 2) * 2, 5, 3, cape[2])
+    # épée dans le dos
+    s.r(42, 8, 2, 26, rgb("#c8ccd4"))
+    s.r(42, 8, 1, 26, rgb("#f0f4fa"))
+    s.r(40, 32, 6, 2, rgb("#8a6a2a"))
+    # jambes et bottes
+    s.r(19, 66, 8, 28, pants[1])
+    s.r(29, 66, 8, 28, pants[2])
+    s.r(19, 66, 3, 28, pants[0])
+    s.r(27, 70, 2, 24, rgb("#2e241c"))
+    s.r(18, 90, 10, 10, rgb("#4a3020"))
+    s.r(28, 90, 10, 10, rgb("#3a2618"))
+    s.r(18, 90, 10, 2, rgb("#6a4a30"))
+    s.r(28, 90, 10, 2, rgb("#5a3a24"))
+    # torse avec épaules arrondies
+    s.ellipse(28, 36, 13, 6, tun[1])
+    s.r(16, 36, 24, 32, tun[1])
+    s.r(16, 36, 7, 32, tun[0])
+    s.r(34, 36, 6, 32, tun[2])
+    s.r(25, 33, 6, 9, tun[2])
+    s.r(26, 33, 4, 7, skin[2])
+    s.r(16, 58, 24, 3, rgb("#5a3a1a"))
+    s.r(26, 58, 4, 3, rgb("#c8a040"))
+    s.r(16, 64, 24, 3, tun[2])
+    # bras, un peu écartés du corps
+    s.r(10, 36, 6, 24, tun[1])
+    s.r(10, 36, 2, 24, tun[0])
+    s.r(40, 36, 6, 24, tun[2])
+    s.r(10, 56, 6, 2, tun[2])
+    s.r(40, 56, 6, 2, rgb("#1e2e4a"))
+    s.ellipse(13, 62, 3.2, 3.6, skin[1])
+    s.ellipse(43, 62, 3.2, 3.6, skin[2])
+    # cou et tête
+    s.r(24, 26, 8, 7, skin[2])
+    s.ellipse(28, 17, 10, 11, skin[1])
+    s.ellipse(25, 14, 6, 6, skin[0])
+    s.r(36, 14, 1, 8, skin[2])
+    s.r(22, 25, 12, 1, skin[2])
+    s.r(23, 18, 3, 3, rgb("#f4f0ec"))
+    s.r(30, 18, 3, 3, rgb("#f4f0ec"))
+    s.r(24, 18, 2, 3, rgb("#20141c"))
+    s.r(31, 18, 2, 3, rgb("#20141c"))
+    s.p(24, 18, rgb("#ffffff"))
+    s.p(31, 18, rgb("#ffffff"))
+    s.r(22, 16, 4, 1, hair[2])
+    s.r(30, 16, 4, 1, hair[2])
+    s.r(28, 20, 1, 2, skin[2])
+    s.r(26, 23, 4, 1, rgb("#8a4a40"))
+    s.ellipse(28, 8, 11, 5, hair[1])
+    s.ellipse(25, 6, 6, 2.5, hair[0])
+    s.r(17, 8, 4, 10, hair[1])
+    s.r(35, 8, 4, 10, hair[2])
+    for x in range(19, 37, 3):
+        s.r(x, 10, 2, 2 + (x * 3) % 3, hair[1])
+    # cicatrice
+    for i in range(4):
+        s.p(32 + i // 2, 12 + i, rgb("#a85a50"))
+    if state & 1:
+        r = random.Random(5)
+        for _ in range(40):
+            x, y = r.randrange(12, 44), r.randrange(30, 100)
+            if s.get(x, y)[3]:
+                s.p(x, y, rgb("#5a4632"))
+        for (x, y) in ((22, 20), (33, 12), (27, 26)):
+            s.p(x, y, rgb("#6a5040"))
+        s.r(18, 90, 20, 10, rgb("#4a3a2a"))
+        s.r(26, 50, 10, 2, rgb("#2a3a5a"))
+        s.r(12, 44, 3, 3, CLEAR)
+        s.p(13, 45, rgb("#20141c"))
+    if state & 2:
+        for (x, y, h) in ((34, 40, 8), (36, 44, 6), (22, 70, 7), (12, 52, 5)):
+            s.r(x, y, 2, h, rgb("#8a1a1a"))
+            s.p(x, y, rgb("#c83030"))
+        s.r(31, 12, 2, 4, rgb("#a8282a"))
+    if state & 4:
+        s.r(40, 46, 6, 5, rgb("#e8e0d0"))
+        s.r(40, 48, 6, 1, rgb("#c8c0b0"))
+        s.p(42, 47, rgb("#c83030"))
+        s.r(20, 9, 16, 3, rgb("#e8e0d0"))
+    s.outline(0.7)
+    s.shadow(28, 101, 14, 2.2)
+    return s
+
+
 def soft_glow():
     s = Spr(32, 32)
     for y in range(32):
@@ -2091,6 +2321,8 @@ def build_sprites():
     items.append(("ruin", [ruin()], 0, 40))
     items.append(("grave", [grave()], 0, 22))
     items += [(n, fr, 0, 0) for n, fr in portraits(people)]
+    items += [("ic_" + k, [item_icon(k)], 0, 0) for k in ICONS]
+    items.append(("hero_stand", [hero_stand(st) for st in range(8)], 0, 0))
     items.append(("glow", [soft_glow()], 16, 16))
     for name, size in (("attack", 32), ("interact", 24), ("soul", 24), ("potion", 20), ("bag", 18), ("build", 18), ("map", 18), ("pause", 18)):
         items.append(("btn_" + name, [button(name, size, False), button(name, size, True)], 0, 0))
