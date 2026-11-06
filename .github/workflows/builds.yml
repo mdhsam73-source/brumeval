@@ -1,6 +1,8 @@
 # Compile le jeu à chaque envoi : APK Android, Windows, Linux et Web.
 # Les fichiers se téléchargent dans l'onglet Actions (section « Artifacts »),
 # et la branche main publie aussi la release « derniere-version ».
+# Automatique aussi : numéro de version (0.6.<nombre de commits>), captures d'écran
+# sur chaque PR, et mise en ligne sur itch.io si la clé BUTLER_API_KEY est réglée.
 name: Builds
 
 on:
@@ -32,6 +34,19 @@ jobs:
             file: web/index.html
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Numéro de version automatique
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          N=$(git rev-list --count HEAD)
+          BASE=$(sed -n 's/^config\/version="\([0-9]*\.[0-9]*\).*/\1/p' project.godot)
+          V="$BASE.$N"
+          sed -i "s/^config\/version=\"[^\"]*\"/config\/version=\"$V\"/" project.godot
+          sed -i "s/^version\/code=[0-9]*/version\/code=$N/; s/^version\/name=\"[^\"]*\"/version\/name=\"$V\"/" export_presets.cfg
+          echo "Version $V (code $N)"
+          echo "$V" > version.txt
 
       - name: Préparer Godot (modèles d'export, réglages Android)
         run: |
@@ -51,10 +66,51 @@ jobs:
           godot --headless --export-debug "${{ matrix.preset }}" "build/${{ matrix.file }}"
           test -s "build/${{ matrix.file }}"
 
+      - name: Garder le numéro de version
+        if: matrix.preset == 'Web'
+        run: cp version.txt build/version.txt
+
       - uses: actions/upload-artifact@v4
         with:
           name: brumeval-${{ matrix.preset }}
           path: build/
+
+  captures:
+    name: Captures d'écran
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-22.04
+    container:
+      image: barichello/godot-ci:4.3
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Préparer l'écran virtuel
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq xvfb libgl1-mesa-dri libglu1-mesa > /dev/null
+      - name: Importer les ressources
+        run: godot --headless --import
+      - name: Prendre les captures
+        env:
+          SHOT_DIR: ${{ github.workspace }}/captures
+        run: |
+          timeout 300 xvfb-run -s "-screen 0 1440x810x24" godot --rendering-driver opengl3 --path . --script res://tests/captures.gd 2>&1 | grep -E "capture|SCRIPT ERROR" || true
+          ls captures/*.png
+      - uses: actions/upload-artifact@v4
+        id: up
+        with:
+          name: captures
+          path: captures/
+      - name: Prévenir dans la PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          URL: ${{ steps.up.outputs.artifact-url }}
+        run: |
+          curl -s -o /dev/null -w "%{http_code}\n" -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+            -d "{\"body\": \"📸 Captures de cette version (titre, village, sac, dialogue, scène, nuit) : $URL\"}"
 
   release:
     name: Publier la dernière version
@@ -80,6 +136,33 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           gh release delete derniere-version --yes --cleanup-tag || true
+          V=$(cat dl/brumeval-Web/version.txt)
           gh release create derniere-version out/* --prerelease --target "$GITHUB_SHA" \
-            --title "Dernière version (test)" \
+            --title "Dernière version $V (test)" \
             --notes "Compilée automatiquement depuis main. Sur Android : télécharger Brumeval-android.apk et autoriser l'installation depuis cette source."
+
+  itch:
+    name: Mise en ligne sur itch.io
+    needs: export
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-22.04
+    env:
+      BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+      ITCH_GAME: ${{ vars.ITCH_GAME }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dl
+      - name: Envoyer sur itch.io
+        run: |
+          if [ -z "$BUTLER_API_KEY" ] || [ -z "$ITCH_GAME" ]; then
+            echo "Pas de clé itch.io réglée (secret BUTLER_API_KEY et variable ITCH_GAME) : étape sautée."
+            exit 0
+          fi
+          curl -sL -o butler.zip https://broth.itch.ovh/butler/linux-amd64/LATEST/archive/default
+          unzip -q butler.zip && chmod +x butler
+          V=$(cat dl/brumeval-Web/version.txt)
+          ./butler push dl/brumeval-Web/web "$ITCH_GAME:html5" --userversion "$V"
+          ./butler push dl/brumeval-Windows/windows "$ITCH_GAME:windows" --userversion "$V"
+          ./butler push dl/brumeval-Linux/linux "$ITCH_GAME:linux" --userversion "$V"
+          ./butler push dl/brumeval-Android/android "$ITCH_GAME:android" --userversion "$V"

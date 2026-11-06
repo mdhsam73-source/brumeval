@@ -11,6 +11,13 @@ RPG pixel vu de dessus : masques, transfert d'âme, village à bâtir, options s
 - Portraits de dialogue avec expressions, couleurs plus ternes, boue et sang (désactivable dans les réglages).
 - Sac en grille avec une icône par objet, héros en pied qui montre son état (sale, blessé, bandé), journal des événements, nuits plus noires (0.6.1).
 
+## Automatisations
+
+- Chaque PR : test rapide, compilation des 4 versions et captures d'écran (lien posté en commentaire).
+- Numéro de version automatique : `0.6.<nombre de commits>` (le début vient de `project.godot`).
+- Chaque fusion dans main : release « derniere-version », et mise en ligne sur itch.io si le secret `BUTLER_API_KEY` et la variable `ITCH_GAME` (ex. `pseudo/brumeval`) sont réglés dans GitHub.
+- Captures en local : `godot --rendering-driver opengl3 --path . --script res://tests/captures.gd`.
+
 ## Lancer le jeu
 
 1. Installer [Godot 4.3](https://godotengine.org/download) (version standard, pas .NET).
