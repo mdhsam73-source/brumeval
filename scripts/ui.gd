@@ -285,7 +285,7 @@ func show_title() -> void:
 	col.add_theme_constant_override("separation", 2)
 	col.offset_top = 4
 	title_root.add_child(col)
-	var demo := _label(Lang.t("demo_line"), 7, C_BRASS)
+	var demo := _label(Lang.t("demo_line") + "  ·  v" + str(ProjectSettings.get_setting("application/config/version", "")), 7, C_BRASS)
 	demo.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	col.add_child(demo)
 	var logo := TextureRect.new()
