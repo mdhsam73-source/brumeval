@@ -25,6 +25,7 @@ var toasts: VBoxContainer
 var npc = null
 var h_lv: Label
 var h_hp: ProgressBar
+var h_sta: ProgressBar
 var h_xp: ProgressBar
 var h_gold: Label
 var h_state: Label
@@ -389,6 +390,15 @@ func _build_hud() -> Control:
 	h_hp.custom_minimum_size = Vector2(120, 8)
 	h_hp.show_percentage = false
 	lv.add_child(h_hp)
+	# Endurance : barre verte fine sous les PV.
+	h_sta = ProgressBar.new()
+	h_sta.custom_minimum_size = Vector2(120, 4)
+	h_sta.show_percentage = false
+	var sst := StyleBoxFlat.new()
+	sst.bg_color = Color("#7ad06a")
+	h_sta.add_theme_stylebox_override("fill", sst)
+	h_sta.tooltip_text = Lang.t("stamina")
+	lv.add_child(h_sta)
 	h_xp = ProgressBar.new()
 	h_xp.custom_minimum_size = Vector2(120, 6)
 	h_xp.show_percentage = false
@@ -446,6 +456,8 @@ func _update_hud() -> void:
 	h_lv.text = Lang.t("lv", [w.lvl]) + "  ♥ %d/%d" % [ceili(w.body.hp if w.body else w.p_hp), int(w.body.maxhp if w.body else w.max_hp())] + (" · " + Lang.t("married", [w.spouse]) if w.spouse != "" else "")
 	h_hp.max_value = mh
 	h_hp.value = hp
+	h_sta.value = w.stamina
+	h_sta.modulate.a = 0.5 if w.stamina >= w.max_sta() - 0.5 else 1.0
 	h_surv[0].value = w.hunger
 	h_surv[1].value = 100 - w.fatigue
 	h_surv[2].value = w.morale
@@ -624,6 +636,42 @@ func _on_panel_requested(kind: String) -> void:
 			open_map()
 		"pause":
 			open_pause()
+		"board":
+			open_board()
+
+
+## Tableau des contrats : prendre jusqu'à deux contrats et toucher la prime.
+func open_board() -> void:
+	var w = world
+	if not w.flags.has("c_offer"):
+		w.roll_contracts()
+	_open("board", Lang.t("board_title"))
+	panel_box.add_child(_label(Lang.t("board_hint"), 7, C_DIM, true))
+	panel_box.add_child(_label(Lang.t("c_active"), 9, C_MIST))
+	if w.contracts().is_empty():
+		panel_box.add_child(_label(Lang.t("nothing"), 8, C_DIM))
+	for i in w.contracts().size():
+		var c: Dictionary = w.contracts()[i]
+		var ii: int = i
+		var p: int = w.contract_progress(c)
+		var btn := _button(Lang.t("c_turn_in"), func(): w.turn_in_contract(ii); open_board(), p < c.n)
+		panel_box.add_child(_row(_contract_text(c), "%d/%d · %d %s" % [p, c.n, c.gold, Lang.nm("gold")], btn, Art.icon(c.k) if c.t == "bring" else null))
+	panel_box.add_child(_label(Lang.t("c_offer"), 9, C_MIST))
+	var offer: Array = w.flags.get("c_offer", [])
+	if offer.is_empty():
+		panel_box.add_child(_label(Lang.t("c_none"), 8, C_DIM))
+	for i in offer.size():
+		var c: Dictionary = offer[i]
+		var ii: int = i
+		var btn := _button(Lang.t("c_take"), func(): w.accept_contract(ii); open_board(), w.contracts().size() >= 2)
+		panel_box.add_child(_row(_contract_text(c), "+%d %s · +%d XP" % [c.gold, Lang.nm("gold"), c.xp], btn, Art.icon(c.k) if c.t == "bring" else null))
+	panel_box.add_child(_button(Lang.t("close"), close_panel))
+
+
+func _contract_text(c: Dictionary) -> String:
+	if c.t == "kill":
+		return Lang.t("c_kill", [c.n, Lang.nm(c.k)])
+	return Lang.t("c_bring", [c.n, Lang.nm(c.k)])
 
 
 func open_pause() -> void:
@@ -741,7 +789,7 @@ func open_patreon() -> void:
 ## Utiliser, équiper ou regarder un objet du sac.
 func _use_item(k: String) -> void:
 	var w = world
-	if k == "potion" or k == "stew" or k == "bandage" or Defs.FOOD.has(k):
+	if k == "potion" or k == "bandage" or Defs.FOOD.has(k):
 		w.heal_item(k)
 	elif Defs.MASKF.has(k):
 		w.mask = "" if w.mask == k else k
@@ -840,7 +888,7 @@ func open_inventory() -> void:
 		var no_lib: bool = r.get("lib", false) and not w.count_b("library")
 		if no_lib:
 			continue
-		var dis: bool = done or (r.get("ws", false) and not ws) or not w.has(r.need)
+		var dis: bool = done or (r.get("ws", false) and not ws) or (r.get("fire", false) and not w.near_fire()) or not w.has(r.need)
 		var id: String = r.id
 		var btn := _button("✓" if done else Lang.t("craft"), func():
 			if w.has(r.need):
@@ -851,7 +899,7 @@ func open_inventory() -> void:
 					w.give(id, r.get("n", 1))
 				show_toast(Lang.t("crafted", [Lang.nm(id)]), "good")
 			open_inventory(), dis)
-		panel_box.add_child(_row(Lang.nm(id), _cost(r.need), btn, Art.icon(id)))
+		panel_box.add_child(_row(Lang.nm(id), _cost(r.need) + ("  · " + Lang.t("need_fire") if r.get("fire", false) else ""), btn, Art.icon(id)))
 	panel_box.add_child(_button(Lang.t("close"), close_panel))
 
 
@@ -1076,4 +1124,6 @@ func _wounds_text() -> String:
 		wounds.append(Lang.t("w_hungry"))
 	if w.fatigue >= 80:
 		wounds.append(Lang.t("w_tired"))
+	if w.sick_t > 0:
+		wounds.append(Lang.t("w_sick"))
 	return " · ".join(wounds)

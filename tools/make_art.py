@@ -1904,7 +1904,7 @@ def portraits(people):
 # ------------------------------------------------------------------ icônes d'objets
 
 ICONS = ("wood", "stone", "berry", "meat", "crystal", "ear", "fang", "hide", "ecto", "potion", "stew",
-         "bandage", "bread", "ring", "sword", "armor", "gold", "relic",
+         "bandage", "bread", "grilled", "ring", "sword", "armor", "gold", "relic",
          "mask_gob", "mask_wolf", "mask_wisp", "mask_spectre")
 
 
@@ -1972,6 +1972,14 @@ def item_icon(k):
         s.p(10, 9, rgb("#7aa040"))
         for (x, y) in ((6, 4), (9, 3), (8, 5)):
             s.p(x, y, (230, 230, 230, 140))
+    elif k == "grilled":
+        s.r(10, 3, 2, 6, rgb("#efe4cc"))
+        s.ellipse(11, 2.5, 2, 1.5, rgb("#efe4cc"))
+        s.ellipse(7, 10, 5.5, 4.5, rgb("#7a3a1a"))
+        s.ellipse(6, 9, 3, 2.4, rgb("#a8582a"))
+        for x in (4, 7, 10):
+            s.r(x, 8, 1, 4, rgb("#3a1a0a"))
+        s.p(5, 7, rgb("#e8a060"))
     elif k == "bandage":
         s.ellipse(8, 8, 5.5, 5.5, rgb("#e8e0d0"))
         s.ellipse(8, 8, 2, 2, rgb("#b8b0a0"))
@@ -2128,6 +2136,25 @@ def hero_stand(state):
         s.r(20, 9, 16, 3, rgb("#e8e0d0"))
     s.outline(0.7)
     s.shadow(28, 101, 14, 2.2)
+    return s
+
+
+def board():
+    """Tableau des contrats : panneau de bois sur deux poteaux, avis épinglés."""
+    s = Spr(16, 30)
+    wd, lo, hi = rgb("#7a5634"), rgb("#4e3420"), rgb("#9a7048")
+    s.r(2, 10, 2, 19, lo)
+    s.r(12, 10, 2, 19, lo)
+    s.r(1, 6, 14, 12, wd)
+    s.r(1, 6, 14, 1, hi)
+    s.r(1, 17, 14, 1, lo)
+    s.r(1, 4, 14, 2, rgb("#5a3a20"))
+    for (x, y, c) in ((2, 8, "#e8e0c8"), (7, 7, "#d8d0b0"), (10, 11, "#e8e0c8"), (4, 12, "#d0c4a0")):
+        s.r(x, y, 4, 4, rgb(c))
+        s.r(x + 1, y + 1, 2, 1, rgb("#6a6050"))
+        s.p(x + 1, y, rgb("#c83030"))
+    s.outline()
+    s.shadow(8, 28.5, 7, 1.5)
     return s
 
 
@@ -2317,6 +2344,7 @@ def build_sprites():
     items.append(("fountain", fountain(), 0, 34))
     items.append(("lamp", [lamp(False), lamp(True)], 0, 34))
     items.append(("bench", [bench()], 0, 16))
+    items.append(("board", [board()], 0, 30))
     items.append(("rampart", [rampart()], 0, 30))
     items.append(("ruin", [ruin()], 0, 40))
     items.append(("grave", [grave()], 0, 22))

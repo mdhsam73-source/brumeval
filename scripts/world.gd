@@ -86,6 +86,10 @@ var morale := 60.0
 var bleed_t := 0.0
 var sprain_t := 0.0
 var bandage_t := 0.0
+var stamina := 100.0
+var sta_wait := 0.0
+var sprinting := false
+var sick_t := 0.0
 var _starve_msg := 0.0
 var slow_t := 0.0
 var _scene_check := 0.0
@@ -512,6 +516,16 @@ func def_p() -> int:
 	return (2 if armor else 0) + (1 if spouse != "" else 0)
 
 
+## Endurance maximale : la faim et l'épuisement la réduisent.
+func max_sta() -> float:
+	var m := 100.0
+	if hunger < 25:
+		m -= 25
+	if fatigue >= 80:
+		m -= 25
+	return m
+
+
 func spd_p() -> float:
 	if body:
 		return minf(95.0, Defs.MON[body.kind].spd * 1.5)
@@ -522,6 +536,10 @@ func spd_p() -> float:
 		sp *= 0.8
 	if sprain_t > 0:
 		sp *= 0.7
+	if sick_t > 0:
+		sp *= 0.9
+	if sprinting:
+		sp *= 1.55
 	return sp
 
 
@@ -542,6 +560,11 @@ func darkness() -> float:
 
 func is_night() -> bool:
 	return darkness() > 0.3
+
+
+## Nuit selon le ciel seulement (la crypte est toujours sombre, mais il n'y fait pas nuit).
+func sky_night() -> bool:
+	return clampf((cos(time * TAU) + 0.25) * 0.62, 0.0, 0.74) > 0.3
 
 
 func friendly(e: Ent) -> bool:
@@ -615,9 +638,14 @@ func heal_item(k: String) -> void:
 		hunger = minf(100, hunger + f[0])
 		morale = clampf(morale + f[1], 0, 100)
 		float_t(p_pos + Vector2(0, -24), Lang.t("ate"), Color("#e8c878"))
+		# La viande crue peut rendre malade : mieux vaut la griller au feu.
+		if k == "meat" and randf() < 0.35 and sick_t <= 0:
+			sick_t = 90.0
+			toast.emit(Lang.t("sick"), "bad")
 	var h: int = {"stew": 45, "potion": 30, "berry": 3, "meat": 5}.get(k, 0)
 	if k == "potion":
 		bleed_t = 0.0
+		sick_t = 0.0
 	if h:
 		p_hp = minf(max_hp(), p_hp + h)
 		float_t(p_pos + Vector2(0, -18), "+%d" % h, Color("#8fe08a"))
@@ -663,6 +691,20 @@ func _update_survival(dt: float) -> void:
 	fatigue = minf(100, fatigue + Defs.FATIGUE_RATE * dt)
 	sprain_t = maxf(0, sprain_t - dt)
 	bandage_t = maxf(0, bandage_t - dt)
+	# Endurance : le sprint et les coups la vident, elle revient quand on souffle (moins vite si épuisé).
+	sprinting = p_moving and Input.is_action_pressed("sprint") and stamina > 1 and sprain_t <= 0
+	if sprinting:
+		stamina = maxf(0, stamina - 28 * dt)
+		sta_wait = 0.8
+		fatigue = minf(100, fatigue + Defs.FATIGUE_RATE * dt)
+	else:
+		sta_wait -= dt
+		if sta_wait <= 0:
+			stamina = minf(max_sta(), stamina + (14.0 if fatigue >= 80 else 30.0) * dt)
+	if sick_t > 0:
+		sick_t -= dt
+		hunger = maxf(0, hunger - Defs.HUNGER_RATE * dt * 1.5)
+		morale = maxf(0, morale - 0.05 * dt)
 	if bleed_t > 0:
 		bleed_t -= dt
 		p_hp -= 1.0 * dt
@@ -705,6 +747,13 @@ func _update_survival(dt: float) -> void:
 func player_attack() -> void:
 	if atk_cd > 0 or dead_t > 0:
 		return
+	if not body:
+		if stamina < 8:
+			atk_cd = 0.3
+			float_t(p_pos + Vector2(0, -22), Lang.t("winded"), Color("#9ad0ff"))
+			return
+		stamina -= 10
+		sta_wait = 0.7
 	atk_cd = 0.36
 	swing = 0.14
 	var hit_p := p_pos + Vector2(p_dir) * 12 + Vector2(0, -5)
@@ -816,7 +865,14 @@ func _respawn() -> void:
 	morale = maxf(0, morale - 15)
 	bleed_t = 0
 	sprain_t = 0
-	hurt_t = 1.5
+	sick_t = 0
+	stamina = 100.0
+	# Quelques secondes de répit : les ennemis proches perdent ta trace et reculent.
+	hurt_t = 4.0
+	for e in ents:
+		if e.is_mon() and not e.ally and not e.dead and e.pos.distance_to(p_pos) < 140:
+			e.prov = 0
+			e.pos += (e.pos - p_pos).normalized() * 120
 
 
 # ---------------------------------------------------------------- Âme
@@ -1153,6 +1209,7 @@ func _update_buildings(dt: float) -> void:
 
 func _new_day() -> void:
 	day += 1
+	roll_contracts()
 	toast.emit(Lang.t("new_day"), "")
 	var farms := count_b("farm")
 	var mills := count_b("mill")
@@ -1397,6 +1454,9 @@ func interact() -> void:
 			if b.k == "ruin":
 				search_ruin(b)
 				return
+			if b.k == "board":
+				panel_requested.emit("board")
+				return
 			if b.k == "grave":
 				morale = minf(100, morale + 3)
 				toast.emit(Lang.t("grave_visit"), "")
@@ -1409,17 +1469,9 @@ func interact() -> void:
 				else:
 					toast.emit(Lang.t("tavern_poor"), "bad")
 				return
-			if b.k == "campfire":
-				if is_night() or fatigue >= 60:
-					if is_night():
-						time = 0.27
-					else:
-						time = minf(0.95, time + 0.15)
-					fatigue = 0.0
-					sprain_t = 0.0
-					hunger = maxf(0, hunger - 15)
-					p_hp = minf(max_hp(), p_hp + max_hp() * (0.6 if hunger > 20 else 0.2))
-					toast.emit(Lang.t("rest_done"), "good")
+			if b.k == "campfire" or b.k == "house":
+				if sky_night() or fatigue >= 60:
+					sleep(1.0 if b.k == "house" else 0.85)
 				else:
 					toast.emit(Lang.t("rest_day"), "")
 				return
@@ -1440,6 +1492,101 @@ func interact() -> void:
 		if map[i] == T.GATE or (i + MW < map.size() and map[i + MW] == T.GATE):
 			toast.emit(Lang.t("gate_open") if gate_open() else Lang.t("gate_locked"), "good" if gate_open() else "bad")
 			return
+	# Rien à côté : on peut dormir à même le sol si l'on est épuisé ou qu'il fait nuit.
+	if not body and (sky_night() or fatigue >= 60):
+		sleep_rough()
+
+
+## Dormir : passe la nuit (ou quelques heures le jour) et récupère selon l'abri.
+func sleep(quality: float) -> void:
+	if sky_night():
+		if time > 0.5:
+			_new_day()
+		time = 0.27
+	else:
+		time = minf(0.95, time + 0.15)
+	fatigue = 100.0 * (1.0 - quality) * 0.6
+	stamina = 100.0
+	if quality >= 0.85:
+		sprain_t = 0.0
+	hunger = maxf(0, hunger - 15)
+	p_hp = minf(max_hp(), p_hp + max_hp() * (0.6 if hunger > 20 else 0.2) * quality)
+	toast.emit(Lang.t("rest_done"), "good")
+
+
+## À la belle étoile : on récupère moins, et loin du village on peut être attaqué dans son sommeil.
+func sleep_rough() -> void:
+	var village := Vector2((Defs.VX + 0.5) * TS, (Defs.VY + 2) * TS)
+	var safe := p_pos.distance_to(village) < 220 or buildings.any(func(b): return b.k == "campfire" and b.center().distance_to(p_pos) < 90)
+	if not safe and randf() < 0.35:
+		fatigue = maxf(0, fatigue - 30)
+		var kind := "bandit" if randf() < 0.5 else "loup"
+		for k in 2:
+			var m := mk_mon(kind, maxi(1, lvl), p_pos + Vector2.from_angle(randf() * TAU) * 60, -1)
+			m.prov = 10
+			ents.append(m)
+		toast.emit(Lang.t("ambush_night"), "bad")
+		return
+	sleep(0.5)
+	toast.emit(Lang.t("slept_rough"), "")
+
+
+# ---------------------------------------------------------------- Contrats
+
+## Trois nouveaux contrats chaque jour sur le tableau.
+func roll_contracts() -> void:
+	var pool := Defs.CONTRACTS.filter(func(c): return c[5] <= town_lv())
+	pool.shuffle()
+	var offer := []
+	for c in pool.slice(0, 3):
+		var n := randi_range(c[2], c[3])
+		offer.append({"t": c[0], "k": c[1], "n": n, "gold": n * c[4] + 5 * lvl, "xp": n * c[4] * 2})
+	flags["c_offer"] = offer
+
+
+func contracts() -> Array:
+	return flags.get("c_active", [])
+
+
+func accept_contract(i: int) -> void:
+	var offer: Array = flags.get("c_offer", [])
+	if i >= offer.size() or contracts().size() >= 2:
+		return
+	var c: Dictionary = offer[i]
+	c["base"] = stats.kills.get(c.k, 0)
+	var act := contracts()
+	act.append(c)
+	flags["c_active"] = act
+	offer.remove_at(i)
+	toast.emit(Lang.t("c_taken"), "good")
+
+
+func contract_progress(c: Dictionary) -> int:
+	if c.t == "kill":
+		return mini(c.n, stats.kills.get(c.k, 0) - c.get("base", 0))
+	return mini(c.n, inv.get(c.k, 0))
+
+
+func turn_in_contract(i: int) -> void:
+	var act := contracts()
+	if i >= act.size():
+		return
+	var c: Dictionary = act[i]
+	if contract_progress(c) < c.n:
+		return
+	if c.t == "bring":
+		take({c.k: c.n})
+	gold += c.gold
+	add_xp(c.xp)
+	morale = minf(100, morale + 6)
+	stats["contracts"] = stats.get("contracts", 0) + 1
+	act.remove_at(i)
+	flags["c_active"] = act
+	toast.emit(Lang.t("c_done", [c.gold]), "good")
+
+
+func near_fire() -> bool:
+	return buildings.any(func(b): return b.k == "campfire" and b.center().distance_to(p_pos) < 56)
 
 
 func near_workshop() -> bool:

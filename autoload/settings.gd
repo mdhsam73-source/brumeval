@@ -75,12 +75,12 @@ func _setup_input() -> void:
 		"move_left": [KEY_A, KEY_LEFT], "move_right": [KEY_D, KEY_RIGHT],
 		"attack": [KEY_SPACE, KEY_J], "interact": [KEY_E], "soul": [KEY_R],
 		"build": [KEY_B], "inventory": [KEY_I, KEY_TAB], "map": [KEY_M],
-		"potion": [KEY_H], "pause": [KEY_ESCAPE],
+		"potion": [KEY_H], "pause": [KEY_ESCAPE], "sprint": [KEY_SHIFT],
 	}
 	var pads := {
 		"attack": JOY_BUTTON_A, "interact": JOY_BUTTON_X, "soul": JOY_BUTTON_Y,
 		"build": JOY_BUTTON_LEFT_SHOULDER, "inventory": JOY_BUTTON_RIGHT_SHOULDER,
-		"map": JOY_BUTTON_BACK, "pause": JOY_BUTTON_START, "potion": JOY_BUTTON_B,
+		"map": JOY_BUTTON_BACK, "pause": JOY_BUTTON_START, "potion": JOY_BUTTON_B, "sprint": JOY_BUTTON_LEFT_STICK,
 	}
 	var axes := {
 		"move_left": [JOY_AXIS_LEFT_X, -1.0], "move_right": [JOY_AXIS_LEFT_X, 1.0],

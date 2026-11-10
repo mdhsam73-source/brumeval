@@ -33,6 +33,7 @@ const BLD := {
 	"well": {"w": 1, "h": 1, "cost": {"stone": 8}},
 	"lamp": {"w": 1, "h": 1, "cost": {"wood": 2, "stone": 3}},
 	"bench": {"w": 1, "h": 1, "cost": {"wood": 3}},
+	"board": {"w": 1, "h": 1, "cost": {"wood": 6, "stone": 2}},
 	"tavern": {"w": 2, "h": 2, "cost": {"wood": 25, "stone": 10}, "lv": 1},
 	"bakery": {"w": 2, "h": 2, "cost": {"wood": 15, "stone": 12}, "lv": 1},
 	"market": {"w": 2, "h": 2, "cost": {"wood": 20}, "lv": 1},
@@ -54,13 +55,22 @@ const MARKET_SELL := 1.5
 const HUNGER_RATE := 100.0 / (DAYLEN * 1.6)
 const FATIGUE_RATE := 100.0 / (DAYLEN * 1.4)
 ## Nourriture : [faim rendue, moral].
-const FOOD := {"berry": [8, 0], "meat": [14, -3], "stew": [40, 8], "bread": [25, 4]}
+## Contrats du tableau : chasser des créatures ou rapporter des marchandises.
+## [type, cible, quantité min, quantité max, or par unité, niveau de village minimum]
+const CONTRACTS := [
+	["kill", "gobelin", 3, 6, 4, 0], ["kill", "loup", 2, 4, 6, 0], ["kill", "bandit", 2, 4, 9, 0],
+	["kill", "feufollet", 2, 3, 10, 1], ["kill", "spectre", 1, 2, 22, 2],
+	["bring", "hide", 2, 4, 6, 0], ["bring", "fang", 2, 4, 5, 0], ["bring", "meat", 2, 4, 4, 0],
+	["bring", "wood", 10, 20, 1, 0], ["bring", "stone", 8, 15, 1, 0], ["bring", "ecto", 2, 3, 8, 1],
+]
+const FOOD := {"berry": [8, 0], "meat": [14, -3], "grilled": [32, 5], "stew": [40, 8], "bread": [25, 4]}
 const CHAPEL_XP := 1.15
 
 const RECIPES := [
 	{"id": "potion", "need": {"berry": 3}},
 	{"id": "bandage", "need": {"hide": 1}, "n": 2},
-	{"id": "stew", "need": {"meat": 1, "berry": 2}},
+	{"id": "grilled", "need": {"meat": 1}, "fire": true},
+	{"id": "stew", "need": {"meat": 1, "berry": 2}, "fire": true},
 	{"id": "sword", "need": {"stone": 6, "wood": 4}, "ws": true, "once": true},
 	{"id": "armor", "need": {"hide": 4}, "ws": true, "once": true},
 	{"id": "mask_gob", "need": {"ear": 3}, "ws": true},
