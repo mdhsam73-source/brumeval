@@ -10,6 +10,7 @@ RPG pixel vu de dessus : masques, transfert d'âme, village à bâtir, options s
 - Les villageois meurent pour de bon (une tombe est creusée) et la brume peut en emporter la nuit si le village est mal protégé.
 - Portraits de dialogue avec expressions, couleurs plus ternes, boue et sang (désactivable dans les réglages).
 - Sac en grille avec une icône par objet, héros en pied qui montre son état (sale, blessé, bandé), journal des événements, nuits plus noires (0.6.1).
+- Endurance (Maj pour courir, les coups fatiguent), viande crue qui rend malade et cuisson près d'un feu, dormir n'importe où (risque d'embuscade loin du village), tableau de contrats au village. Corrigé : le jour qui reculait en dormant, l'horloge bloquée dans la crypte, les morts en boucle à la réapparition (0.6 suite).
 
 ## Automatisations
 

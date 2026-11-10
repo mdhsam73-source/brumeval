@@ -116,4 +116,21 @@ func _process(dt):
 		ui.open_inventory(); ui._use_item("bandage")
 		print("stand ", w.stand_state(), " icon ", Art.icon("wood") != null, " events ", ui.events.size() > 0)
 		ui.open_events(); ui.close_panel()
+		# Endurance, viande grillée, sommeil sans retour en arrière, réapparition protégée, contrats.
+		var st0: float = w.stamina; w.atk_cd = 0; w.player_attack()
+		print("stamina used ", st0 - w.stamina > 0)
+		w.add_building("campfire", 3, 40); w.p_pos = Vector2(3 * 16 + 8, 41 * 16 + 4)
+		w.inv["meat"] = 1
+		print("near fire ", w.near_fire())
+		var d0: int = w.day; w.time = 0.9; w.sleep(0.85)
+		print("sleep advances day ", w.day == d0 + 1, " time ", w.time)
+		w.roll_contracts(); w.accept_contract(0)
+		var c: Dictionary = w.contracts()[0]
+		if c.t == "kill": w.stats.kills[c.k] = w.stats.kills.get(c.k, 0) + c.n
+		else: w.inv[c.k] = c.n
+		var g0: int = w.gold; w.turn_in_contract(0)
+		print("contract paid ", w.gold > g0)
+		w.add_building("board", 6, 40); ui.open_board(); ui.close_panel()
+		w.p_hp = 0; w.dead_t = 0.01; w._update_player(0.02)
+		print("respawn safe ", w.hurt_t >= 3.9)
 		quit()
